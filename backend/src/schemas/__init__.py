@@ -71,6 +71,19 @@ from .review_management import (
     ReviewManagementError
 )
 
+from .website_scoring import (
+    AuditStrategy,
+    ConfidenceLevel as ScoringConfidenceLevel,
+    WebsiteScore,
+    CoreWebVitals,
+    LighthouseAuditRequest,
+    LighthouseAuditResponse,
+    LighthouseAuditError,
+    WebsiteScoringSummary,
+    AuditThresholds,
+    AuditConfiguration
+)
+
 __all__ = [
     # Authentication schemas
     'GooglePlacesAuthRequest',
@@ -126,5 +139,16 @@ __all__ = [
     'ReviewFlagResponse',
     'ReviewWorkflowResponse',
     'PendingReviewsResponse',
-    'ReviewManagementError'
+    'ReviewManagementError',
+    # Website scoring schemas
+    'AuditStrategy',
+    'ScoringConfidenceLevel',
+    'WebsiteScore',
+    'CoreWebVitals',
+    'LighthouseAuditRequest',
+    'LighthouseAuditResponse',
+    'LighthouseAuditError',
+    'WebsiteScoringSummary',
+    'AuditThresholds',
+    'AuditConfiguration'
 ]

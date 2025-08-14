@@ -1,0 +1,17 @@
+{
+  "name": "leadgen-makeover-agent-backend",
+  "version": "1.0.0",
+  "description": "Backend API for LeadGen Makeover Agent with Lighthouse integration",
+  "scripts": {
+    "lighthouse:ci": "lhci autorun",
+    "lighthouse:collect": "lhci collect",
+    "lighthouse:assert": "lhci assert",
+    "lighthouse:upload": "lhci upload"
+  },
+  "devDependencies": {
+    "@lhci/cli": "^0.12.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

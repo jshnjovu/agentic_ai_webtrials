@@ -18,12 +18,18 @@ class APIConfig(BaseSettings):
     # Yelp Fusion API Configuration  
     YELP_FUSION_API_KEY: str
     
+    # Lighthouse API Configuration (Google PageSpeed Insights)
+    LIGHTHOUSE_API_KEY: str
+    
     # Rate Limiting Configuration
     GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE: int = 100
     YELP_FUSION_RATE_LIMIT_PER_DAY: int = 5000
+    LIGHTHOUSE_RATE_LIMIT_PER_DAY: int = 25000
+    LIGHTHOUSE_RATE_LIMIT_PER_MINUTE: int = 240
     
     # API Timeout Settings
     API_TIMEOUT_SECONDS: int = 30
+    LIGHTHOUSE_AUDIT_TIMEOUT_SECONDS: int = 30
     
     # Circuit Breaker Configuration
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
@@ -43,18 +49,39 @@ class APIConfig(BaseSettings):
             raise ValueError('YELP_FUSION_API_KEY cannot be empty')
         return v.strip()
     
+    @field_validator('LIGHTHOUSE_API_KEY')
+    @classmethod
+    def validate_lighthouse_key(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError('LIGHTHOUSE_API_KEY cannot be empty')
+        return v.strip()
+    
     @field_validator('GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE')
     @classmethod
     def validate_google_rate_limit(cls, v):
         if v <= 0:
-            raise ValueError('YELP_FUSION_RATE_LIMIT_PER_DAY must be positive')
+            raise ValueError('GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE must be positive')
         return v
     
     @field_validator('YELP_FUSION_RATE_LIMIT_PER_DAY')
     @classmethod
     def validate_yelp_rate_limit(cls, v):
         if v <= 0:
-            raise ValueError('YELP_FUSION_RATE_LIMIT_PER_MINUTE must be positive')
+            raise ValueError('YELP_FUSION_RATE_LIMIT_PER_DAY must be positive')
+        return v
+    
+    @field_validator('LIGHTHOUSE_RATE_LIMIT_PER_DAY')
+    @classmethod
+    def validate_lighthouse_daily_rate_limit(cls, v):
+        if v <= 0:
+            raise ValueError('LIGHTHOUSE_RATE_LIMIT_PER_DAY must be positive')
+        return v
+    
+    @field_validator('LIGHTHOUSE_RATE_LIMIT_PER_MINUTE')
+    @classmethod
+    def validate_lighthouse_minute_rate_limit(cls, v):
+        if v <= 0:
+            raise ValueError('LIGHTHOUSE_RATE_LIMIT_PER_MINUTE must be positive')
         return v
     
     model_config = ConfigDict(

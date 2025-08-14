@@ -44,6 +44,12 @@ class RateLimiter(BaseService):
             "requests": [],
             "last_reset": time.time(),
         }
+        self._rate_limits["lighthouse"] = {
+            "limit": self.api_config.LIGHTHOUSE_RATE_LIMIT_PER_MINUTE,
+            "window": 60,  # seconds
+            "requests": [],
+            "last_reset": time.time(),
+        }
         for api in self._rate_limits:
             self._circuit_breakers[api] = {
                 "failures": 0,

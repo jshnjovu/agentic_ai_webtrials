@@ -31,6 +31,27 @@ def test_client():
 
 
 @pytest.fixture
+def test_client_with_mocked_dependencies():
+    """Create a test client with mocked dependencies for the FastAPI application."""
+    from src.main import app
+    from src.api.v1.website_scoring import get_lighthouse_service
+    
+    # Create a mock service
+    mock_service = Mock()
+    
+    # Override the dependency
+    app.dependency_overrides[get_lighthouse_service] = lambda: mock_service
+    
+    client = TestClient(app)
+    
+    # Return both client and mock for test use
+    yield client, mock_service
+    
+    # Clean up dependency overrides
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 def mock_google_places_response():
     """Mock Google Places API response."""
     return {
