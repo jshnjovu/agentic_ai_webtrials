@@ -14,18 +14,20 @@ from .business_merging_service import BusinessMergingService
 from .duplicate_detection_service import DuplicateDetectionService
 from .confidence_scoring_service import ConfidenceScoringService
 from .review_management_service import ReviewManagementService
+from .content_generation_service import ContentGenerationService
 
 __all__ = [
-    'RateLimiter',
-    'RateLimitMonitor',
-    'GooglePlacesAuthService',
-    'YelpFusionAuthService', 
-    'GooglePlacesService',
-    'YelpFusionService',
-    'CategoryMapperService',
-    'BusinessMatchingService',
-    'BusinessMergingService',
-    'DuplicateDetectionService',
-    'ConfidenceScoringService',
-    'ReviewManagementService'
+	'RateLimiter',
+	'RateLimitMonitor',
+	'GooglePlacesAuthService',
+	'YelpFusionAuthService', 
+	'GooglePlacesService',
+	'YelpFusionService',
+	'CategoryMapperService',
+	'BusinessMatchingService',
+	'BusinessMergingService',
+	'DuplicateDetectionService',
+	'ConfidenceScoringService',
+	'ReviewManagementService',
+	'ContentGenerationService'
 ]

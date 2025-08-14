@@ -57,6 +57,8 @@ app.include_router(authentication.router, prefix=settings.API_V1_STR)
 app.include_router(business_search.router, prefix=settings.API_V1_STR)
 app.include_router(rate_limit_monitoring.router, prefix=settings.API_V1_STR)
 app.include_router(website_scoring.router, prefix=settings.API_V1_STR)
+from src.api.v1 import content_generation as content_generation_module
+app.include_router(content_generation_module.router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")
