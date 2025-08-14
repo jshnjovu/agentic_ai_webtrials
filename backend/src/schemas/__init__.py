@@ -17,6 +17,15 @@ from .business_search import (
     LocationType
 )
 
+from .business_merging import (
+    DataSource,
+    BusinessInput,
+    MatchDetails,
+    MergedBusiness,
+    MergeRequest,
+    MergeResponse
+)
+
 __all__ = [
     # Authentication schemas
     'GooglePlacesAuthRequest',
@@ -28,5 +37,12 @@ __all__ = [
     'BusinessSearchResponse',
     'BusinessSearchError',
     'BusinessData',
-    'LocationType'
+    'LocationType',
+    # Business merging schemas
+    'DataSource',
+    'BusinessInput',
+    'MatchDetails',
+    'MergedBusiness',
+    'MergeRequest',
+    'MergeResponse'
 ]

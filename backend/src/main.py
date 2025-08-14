@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from src.core import settings, validate_environment
-from src.api.v1 import authentication, business_search
+from src.api.v1 import authentication, business_search, data_merging
 
 
 @asynccontextmanager
@@ -51,6 +51,7 @@ app.add_middleware(
 # Include API routers
 app.include_router(authentication.router, prefix=settings.API_V1_STR)
 app.include_router(business_search.router, prefix=settings.API_V1_STR)
+app.include_router(data_merging.router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")

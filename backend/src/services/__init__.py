@@ -6,10 +6,12 @@ from .rate_limiter import RateLimiter
 from .google_places_auth_service import GooglePlacesAuthService
 from .yelp_fusion_auth_service import YelpFusionAuthService
 from .google_places_service import GooglePlacesService
+from .data_merging_service import DataMergingService
 
 __all__ = [
     'RateLimiter',
     'GooglePlacesAuthService',
     'YelpFusionAuthService', 
-    'GooglePlacesService'
+    'GooglePlacesService',
+    'DataMergingService'
 ]
