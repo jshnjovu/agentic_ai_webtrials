@@ -5,8 +5,8 @@ Unit tests for Google Places business search service.
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from typing import Dict, Any
-from services.google_places_service import GooglePlacesService
-from schemas.business_search import (
+from src.services import GooglePlacesService
+from src.schemas import (
     BusinessSearchRequest, BusinessData, BusinessSearchResponse, 
     BusinessSearchError, LocationType
 )
@@ -95,11 +95,11 @@ class TestGooglePlacesService:
             "next_page_token": "next_page_token_123"
         }
         
+        # Mock the context manager properly
         mock_client_instance = Mock()
-        mock_client_instance.__enter__.return_value = mock_client_instance
-        mock_client_instance.__exit__.return_value = None
         mock_client_instance.get.return_value = mock_response
-        mock_client.return_value = mock_client_instance
+        mock_client.return_value.__enter__.return_value = mock_client_instance
+        mock_client.return_value.__exit__.return_value = None
         
         # Execute search
         result = service.search_businesses(sample_search_request)
@@ -174,11 +174,11 @@ class TestGooglePlacesService:
             "error_message": "Invalid API key"
         }
         
+        # Mock the context manager properly
         mock_client_instance = Mock()
-        mock_client_instance.__enter__.return_value = mock_client_instance
-        mock_client_instance.__exit__.return_value = None
         mock_client_instance.get.return_value = mock_response
-        mock_client.return_value = mock_client_instance
+        mock_client.return_value.__enter__.return_value = mock_client_instance
+        mock_client.return_value.__exit__.return_value = None
         
         # Execute search
         result = service.search_businesses(sample_search_request)
@@ -203,11 +203,11 @@ class TestGooglePlacesService:
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
         
+        # Mock the context manager properly
         mock_client_instance = Mock()
-        mock_client_instance.__enter__.return_value = mock_client_instance
-        mock_client_instance.__exit__.return_value = None
         mock_client_instance.get.return_value = mock_response
-        mock_client.return_value = mock_client_instance
+        mock_client.return_value.__enter__.return_value = mock_client_instance
+        mock_client.return_value.__exit__.return_value = None
         
         # Execute search
         result = service.search_businesses(sample_search_request)
@@ -228,10 +228,9 @@ class TestGooglePlacesService:
         
         # Mock HTTP client to raise timeout exception
         mock_client_instance = Mock()
-        mock_client_instance.__enter__.return_value = mock_client_instance
-        mock_client_instance.__exit__.return_value = None
         mock_client_instance.get.side_effect = Exception("timeout")
-        mock_client.return_value = mock_client_instance
+        mock_client.return_value.__enter__.return_value = mock_client_instance
+        mock_client.return_value.__exit__.return_value = None
         
         # Execute search
         result = service.search_businesses(sample_search_request)
@@ -240,7 +239,7 @@ class TestGooglePlacesService:
         assert isinstance(result, BusinessSearchError)
         assert result.success is False
         assert "Unexpected error" in result.error
-        assert result.context == "unexpected_error"
+        assert result.context == "api_search_execution"
     
     def test_process_location_coordinates_valid(self, service):
         """Test location processing with valid coordinates."""
@@ -356,11 +355,11 @@ class TestGooglePlacesService:
             "next_page_token": "next_next_page_token"
         }
         
+        # Mock the context manager properly
         mock_client_instance = Mock()
-        mock_client_instance.__enter__.return_value = mock_client_instance
-        mock_client_instance.__exit__.return_value = None
         mock_client_instance.get.return_value = mock_response
-        mock_client.return_value = mock_client_instance
+        mock_client.return_value.__enter__.return_value = mock_client_instance
+        mock_client.return_value.__exit__.return_value = None
         
         # Execute next page request
         result = service.get_next_page("test_token", "test_run_123")

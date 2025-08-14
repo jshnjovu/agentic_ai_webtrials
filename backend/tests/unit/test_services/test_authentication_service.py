@@ -5,9 +5,7 @@ Tests Google Places and Yelp Fusion authentication services.
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from src.services.google_places_auth_service import GooglePlacesAuthService
-from src.services.yelp_fusion_auth_service import YelpFusionAuthService
-from src.services.rate_limiter import RateLimiter
+from src.services import GooglePlacesAuthService, YelpFusionAuthService, RateLimiter
 
 
 class TestGooglePlacesAuthService:

@@ -5,11 +5,11 @@ Business search API endpoints for Google Places integration.
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 import uuid
-from schemas.business_search import (
+from src.schemas import (
     BusinessSearchRequest, BusinessSearchResponse, BusinessSearchError,
     LocationType
 )
-from services.google_places_service import GooglePlacesService
+from src.services import GooglePlacesService
 
 router = APIRouter(prefix="/business-search", tags=["business-search"])
 

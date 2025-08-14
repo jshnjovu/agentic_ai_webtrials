@@ -8,15 +8,14 @@ from typing import Dict, Any
 import uuid
 from datetime import datetime
 
-from ...schemas.authentication import (
+from src.schemas import (
     GooglePlacesAuthRequest,
     YelpFusionAuthRequest,
     AuthenticationResponse,
     HealthCheckResponse
 )
-from ...services.google_places_auth_service import GooglePlacesAuthService
-from ...services.yelp_fusion_auth_service import YelpFusionAuthService
-from ...core.config import validate_environment
+from src.services import GooglePlacesAuthService, YelpFusionAuthService
+from src.core import validate_environment
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 

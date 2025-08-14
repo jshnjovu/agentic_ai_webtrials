@@ -5,9 +5,8 @@ Handles authentication and connection testing for Google Places API.
 
 import httpx
 from typing import Dict, Any, Optional
-from ..core.base_service import BaseService
-from ..core.config import get_api_config
-from ..services.rate_limiter import RateLimiter
+from src.core import BaseService, get_api_config
+from src.services import RateLimiter
 
 
 class GooglePlacesAuthService(BaseService):

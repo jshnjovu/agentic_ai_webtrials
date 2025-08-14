@@ -7,10 +7,9 @@ import httpx
 import re
 from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import quote_plus
-from core.base_service import BaseService
-from core.config import get_api_config
-from services.rate_limiter import RateLimiter
-from schemas.business_search import (
+from src.core import BaseService, get_api_config
+from src.services import RateLimiter
+from src.schemas import (
     BusinessSearchRequest, BusinessData, BusinessSearchResponse, 
     BusinessSearchError, LocationType
 )

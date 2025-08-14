@@ -7,8 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from .core.config import settings, validate_environment
-from .api.v1 import authentication
+from src.core import settings, validate_environment
+from src.api.v1 import authentication, business_search
 
 
 @asynccontextmanager
@@ -50,6 +50,7 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(authentication.router, prefix=settings.API_V1_STR)
+app.include_router(business_search.router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")
