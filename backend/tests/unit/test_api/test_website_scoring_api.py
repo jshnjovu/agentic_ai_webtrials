@@ -12,6 +12,7 @@ from src.schemas.website_scoring import (
     AuditStrategy,
     ConfidenceLevel
 )
+import time
 
 
 class TestWebsiteScoringAPI:
@@ -253,16 +254,102 @@ class TestWebsiteScoringAPI:
         assert response.status_code == 422  # Validation error
 
     def test_background_task_persistence(self, test_client_with_mocked_dependencies, sample_audit_request, sample_audit_response):
-        """Test that background task for persistence is added."""
+        """Test that audit results are persisted in background task."""
         client, mock_service = test_client_with_mocked_dependencies
         
-        mock_service.validate_input.return_value = True
-        mock_service.run_lighthouse_audit.return_value = sample_audit_response
-        
-        # Mock the background task function
+        # Mock the background task
         with patch('src.api.v1.website_scoring._persist_audit_results') as mock_persist:
-            response = client.post("/api/v1/website-scoring/lighthouse", json=sample_audit_request)
+            mock_persist.return_value = None
+            
+            # Mock successful audit
+            mock_service.validate_input.return_value = True
+            mock_service.run_lighthouse_audit.return_value = {
+                "success": True,
+                "website_url": "https://example.com",
+                "business_id": "test_business_123",
+                "run_id": "test_run_456",
+                "audit_timestamp": time.time(),
+                "strategy": "desktop",
+                "scores": {
+                    "performance": 85.0,
+                    "accessibility": 92.0,
+                    "best_practices": 88.0,
+                    "seo": 95.0
+                },
+                "overall_score": 90.0,
+                "core_web_vitals": {},
+                "confidence": "high",
+                "raw_data": {}
+            }
+            
+            response = client.post(
+                "/api/v1/website-scoring/lighthouse",
+                json=sample_audit_request
+            )
             
             assert response.status_code == 200
-            # Note: In a real test, you might want to verify the background task was added
-            # This depends on how FastAPI handles background tasks in tests
+            mock_persist.assert_called_once()
+
+    def test_lighthouse_audit_fallback_success(self, test_client_with_mocked_dependencies, sample_audit_request):
+        """Test successful fallback audit when primary audit times out."""
+        client, mock_service = test_client_with_mocked_dependencies
+        
+        # Mock fallback audit success
+        mock_service.validate_input.return_value = True
+        mock_service.run_lighthouse_audit.return_value = {
+            "success": True,
+            "website_url": "https://example.com",
+            "business_id": "test_business_123",
+            "run_id": "test_run_456",
+            "audit_timestamp": time.time(),
+            "strategy": "desktop",
+            "scores": {
+                "performance": 75.0,
+                "accessibility": 0.0,
+                "best_practices": 0.0,
+                "seo": 0.0
+            },
+            "overall_score": 75.0,
+            "core_web_vitals": {},
+            "confidence": "medium",
+            "raw_data": {},
+            "fallback_used": True
+        }
+        
+        response = client.post(
+            "/api/v1/website-scoring/lighthouse",
+            json=sample_audit_request
+        )
+        
+        assert response.status_code == 200
+        response_data = response.json()
+        assert response_data["success"] is True
+        assert response_data["confidence"] == "medium"
+        assert response_data["scores"]["performance"] == 75.0
+
+    def test_lighthouse_audit_fallback_failure(self, test_client_with_mocked_dependencies, sample_audit_request):
+        """Test fallback audit failure handling."""
+        client, mock_service = test_client_with_mocked_dependencies
+        
+        # Mock fallback audit failure
+        mock_service.validate_input.return_value = True
+        mock_service.run_lighthouse_audit.return_value = {
+            "success": False,
+            "error": "Fallback audit failed",
+            "error_code": "FALLBACK_FAILED",
+            "context": "fallback_audit",
+            "website_url": "https://example.com",
+            "business_id": "test_business_123",
+            "run_id": "test_run_456",
+            "audit_timestamp": time.time(),
+            "fallback_used": True
+        }
+        
+        response = client.post(
+            "/api/v1/website-scoring/lighthouse",
+            json=sample_audit_request
+        )
+        
+        assert response.status_code == 400
+        response_data = response.json()
+        assert "Fallback audit failed" in response_data["detail"]["error"]

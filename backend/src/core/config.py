@@ -30,6 +30,9 @@ class APIConfig(BaseSettings):
     # API Timeout Settings
     API_TIMEOUT_SECONDS: int = 30
     LIGHTHOUSE_AUDIT_TIMEOUT_SECONDS: int = 30
+    LIGHTHOUSE_CONNECT_TIMEOUT_SECONDS: int = 10
+    LIGHTHOUSE_READ_TIMEOUT_SECONDS: int = 25
+    LIGHTHOUSE_FALLBACK_TIMEOUT_SECONDS: int = 15
     
     # Circuit Breaker Configuration
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5

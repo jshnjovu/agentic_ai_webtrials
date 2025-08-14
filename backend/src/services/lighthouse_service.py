@@ -25,6 +25,9 @@ class LighthouseService(BaseService):
         self.base_url = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
         self.api_key = self.api_config.LIGHTHOUSE_API_KEY
         self.timeout = self.api_config.LIGHTHOUSE_AUDIT_TIMEOUT_SECONDS
+        self.connect_timeout = self.api_config.LIGHTHOUSE_CONNECT_TIMEOUT_SECONDS
+        self.read_timeout = self.api_config.LIGHTHOUSE_READ_TIMEOUT_SECONDS
+        self.fallback_timeout = self.api_config.LIGHTHOUSE_FALLBACK_TIMEOUT_SECONDS
         
     def validate_input(self, data: Any) -> bool:
         """Validate input data for the service."""
@@ -84,6 +87,36 @@ class LighthouseService(BaseService):
             
             # Record the request in rate limiter
             self.rate_limiter.record_request("lighthouse", audit_result["success"], run_id)
+            
+            # If primary audit fails, attempt fallback audit
+            if not audit_result["success"] and audit_result.get("error_code") == "TIMEOUT":
+                self.log_operation(
+                    f"Primary audit failed with timeout, attempting fallback audit for {website_url}",
+                    run_id=run_id,
+                    business_id=business_id,
+                    context="fallback_attempt"
+                )
+                
+                # Attempt fallback audit with reduced scope
+                fallback_result = self._execute_fallback_audit(website_url, business_id, run_id, strategy)
+                
+                if fallback_result["success"]:
+                    self.log_operation(
+                        f"Fallback audit successful for {website_url}",
+                        run_id=run_id,
+                        business_id=business_id,
+                        context="fallback_success"
+                    )
+                    return fallback_result
+                else:
+                    self.log_operation(
+                        f"Fallback audit also failed for {website_url}",
+                        run_id=run_id,
+                        business_id=business_id,
+                        context="fallback_failure"
+                    )
+                    # Return fallback result instead of original audit result
+                    return fallback_result
             
             if not audit_result["success"]:
                 return audit_result
@@ -150,10 +183,11 @@ class LighthouseService(BaseService):
                 url=params.get('url')
             )
             
-            # Make request with timeout
+            # Make request with enhanced timeout handling
+            timeout_tuple = (self.connect_timeout, self.read_timeout)
             response = requests.get(
                 full_url,
-                timeout=self.timeout,
+                timeout=timeout_tuple,
                 headers={'User-Agent': 'LeadGen-Makeover-Agent/1.0'}
             )
             
@@ -309,3 +343,68 @@ class LighthouseService(BaseService):
             'overall_score': 0.0,
             'confidence': 'low'
         }
+    
+    def _execute_fallback_audit(self, website_url: str, business_id: str, 
+                               run_id: Optional[str], strategy: str) -> Dict[str, Any]:
+        """
+        Execute fallback audit with reduced parameters when primary audit fails.
+        Uses faster strategy and reduced categories for quicker completion.
+        """
+        try:
+            self.log_operation(
+                f"Executing fallback audit for {website_url}",
+                run_id=run_id,
+                business_id=business_id,
+                context="fallback_audit"
+            )
+            
+            # Build fallback parameters with reduced scope
+            fallback_params = {
+                'url': website_url,
+                'key': self.api_key,
+                'strategy': strategy,
+                'category': 'performance',  # Only performance for faster results
+                'prettyPrint': 'false'
+            }
+            
+            # Execute with shorter timeout
+            timeout_tuple = (self.connect_timeout, self.fallback_timeout)
+            
+            response = requests.get(
+                f"{self.base_url}?{urlencode(fallback_params)}",
+                timeout=timeout_tuple,
+                headers={'User-Agent': 'LeadGen-Makeover-Agent/1.0'}
+            )
+            
+            response.raise_for_status()
+            audit_data = response.json()
+            
+            # Process with limited data
+            scores = {
+                'performance': self._extract_score(audit_data.get('lighthouseResult', {}).get('categories', {}), 'performance'),
+                'accessibility': 0.0,  # Not available in fallback
+                'best_practices': 0.0,  # Not available in fallback
+                'seo': 0.0  # Not available in fallback
+            }
+            
+            overall_score = scores['performance']  # Only performance score available
+            
+            return {
+                "success": True,
+                "data": audit_data,
+                "status_code": response.status_code,
+                "fallback_used": True,
+                "scores": scores,
+                "overall_score": overall_score,
+                "confidence": "medium"  # Lower confidence due to limited data
+            }
+            
+        except Exception as e:
+            self.log_error(e, "fallback_audit_failed", run_id, business_id)
+            return {
+                "success": False,
+                "error": f"Fallback audit failed: {str(e)}",
+                "error_code": "FALLBACK_FAILED",
+                "context": "fallback_audit",
+                "fallback_used": True
+            }

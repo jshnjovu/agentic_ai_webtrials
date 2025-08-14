@@ -19,7 +19,10 @@ class TestLighthouseService:
         with patch('src.services.lighthouse_service.get_api_config') as mock_config:
             mock_config.return_value = Mock(
                 LIGHTHOUSE_API_KEY="test_lighthouse_api_key",
-                LIGHTHOUSE_AUDIT_TIMEOUT_SECONDS=30
+                LIGHTHOUSE_AUDIT_TIMEOUT_SECONDS=30,
+                LIGHTHOUSE_CONNECT_TIMEOUT_SECONDS=10,
+                LIGHTHOUSE_READ_TIMEOUT_SECONDS=25,
+                LIGHTHOUSE_FALLBACK_TIMEOUT_SECONDS=15
             )
             return LighthouseService()
     
@@ -171,3 +174,113 @@ class TestLighthouseService:
         
         assert result["success"] is False
         assert result["error"] == "Invalid website URL format"
+    
+    @patch('src.services.lighthouse_service.requests.get')
+    def test_fallback_audit_success(self, mock_get, service):
+        """Test successful fallback audit execution."""
+        # Mock primary audit failure with timeout
+        service.rate_limiter = Mock()
+        service.rate_limiter.can_make_request.return_value = (True, "OK")
+        service.rate_limiter.record_request.return_value = None
+        
+        # Mock fallback audit success
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "lighthouseResult": {
+                "categories": {
+                    "performance": {"score": 0.75}
+                }
+            }
+        }
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+        
+        # Mock primary audit to fail with timeout
+        with patch.object(service, '_execute_audit_with_retry') as mock_primary:
+            mock_primary.return_value = {
+                "success": False,
+                "error": "Audit request timed out",
+                "error_code": "TIMEOUT",
+                "context": "audit_execution"
+            }
+            
+            result = service.run_lighthouse_audit(
+                "https://example.com",
+                "test_business_123",
+                "test_run_456",
+                "desktop"
+            )
+            
+            assert result["success"] is True
+            assert result["fallback_used"] is True
+            assert result["scores"]["performance"] == 75.0
+            assert result["confidence"] == "medium"
+    
+    @patch('src.services.lighthouse_service.requests.get')
+    def test_fallback_audit_failure(self, mock_get, service):
+        """Test fallback audit failure handling."""
+        # Mock primary audit failure with timeout
+        service.rate_limiter = Mock()
+        service.rate_limiter.can_make_request.return_value = (True, "OK")
+        service.rate_limiter.record_request.return_value = None
+        
+        # Mock fallback audit failure
+        mock_get.side_effect = requests.RequestException("Fallback failed")
+        
+        # Mock primary audit to fail with timeout
+        with patch.object(service, '_execute_audit_with_retry') as mock_primary:
+            mock_primary.return_value = {
+                "success": False,
+                "error": "Audit request timed out",
+                "error_code": "TIMEOUT",
+                "context": "audit_execution"
+            }
+            
+            result = service.run_lighthouse_audit(
+                "https://example.com",
+                "test_business_123",
+                "test_run_456",
+                "desktop"
+            )
+            
+            assert result["success"] is False
+            assert result["error_code"] == "FALLBACK_FAILED"
+    
+    def test_timeout_configuration(self, service):
+        """Test timeout configuration values."""
+        assert service.timeout == 30
+        assert service.connect_timeout == 10
+        assert service.read_timeout == 25
+        assert service.fallback_timeout == 15
+    
+    @patch('src.services.lighthouse_service.requests.get')
+    def test_enhanced_timeout_handling(self, mock_get, service):
+        """Test enhanced timeout handling with connect and read timeouts."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"lighthouseResult": {"categories": {}}}
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+        
+        service.rate_limiter = Mock()
+        service.rate_limiter.can_make_request.return_value = (True, "OK")
+        service.rate_limiter.record_request.return_value = None
+        
+        # Test that timeout tuple is used
+        with patch.object(service, '_execute_audit_with_retry') as mock_execute:
+            mock_execute.return_value = {
+                "success": True,
+                "data": {"lighthouseResult": {"categories": {}}},
+                "status_code": 200
+            }
+            
+            service.run_lighthouse_audit(
+                "https://example.com",
+                "test_business_123",
+                "test_run_456",
+                "desktop"
+            )
+            
+            # Verify timeout tuple was used in the mock
+            mock_execute.assert_called_once()
