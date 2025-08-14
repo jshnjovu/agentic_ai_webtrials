@@ -63,8 +63,9 @@ build/
 .ignore/TOOLS_WE_HAVE.md
 
 # Claude and other AI tool directories
-# Note: B-Mad framework directories are intentionally tracked and should not be deleted
-# .claude/
-# .bmad-core/
-# .cursor/
-# .bmad-infrastructure-devops/
+# Note: B-Mad framework directories are intentionally kept but not version controlled
+# They should be preserved and never deleted
+.claude/
+.bmad-core/
+.cursor/
+.bmad-infrastructure-devops/
