@@ -38,6 +38,145 @@ class WebsiteScore(BaseModel):
         return v
 
 
+class HeuristicScore(BaseModel):
+    """Heuristic evaluation scores across different categories."""
+    
+    trust_score: float = Field(..., ge=0, le=100, description="Trust signal score (0-100)")
+    cro_score: float = Field(..., ge=0, le=100, description="Conversion optimization score (0-100)")
+    mobile_score: float = Field(..., ge=0, le=100, description="Mobile usability score (0-100)")
+    content_score: float = Field(..., ge=0, le=100, description="Content quality score (0-100)")
+    social_score: float = Field(..., ge=0, le=100, description="Social proof score (0-100)")
+    overall_heuristic_score: float = Field(..., ge=0, le=100, description="Overall heuristic score (0-100)")
+    confidence_level: ConfidenceLevel = Field(..., description="Confidence level of heuristic evaluation")
+    
+    @validator('overall_heuristic_score')
+    def validate_overall_heuristic_score(cls, v, values):
+        """Validate that overall heuristic score is within expected range."""
+        if v < 0 or v > 100:
+            raise ValueError('Overall heuristic score must be between 0 and 100')
+        return v
+
+
+class TrustSignals(BaseModel):
+    """Trust signal elements detected on the website."""
+    
+    has_https: bool = Field(False, description="Website uses HTTPS")
+    has_privacy_policy: bool = Field(False, description="Privacy policy page exists")
+    has_contact_info: bool = Field(False, description="Contact information is visible")
+    has_about_page: bool = Field(False, description="About page exists")
+    has_terms_of_service: bool = Field(False, description="Terms of service page exists")
+    has_ssl_certificate: bool = Field(False, description="Valid SSL certificate")
+    has_business_address: bool = Field(False, description="Business address is visible")
+    has_phone_number: bool = Field(False, description="Phone number is visible")
+    has_email: bool = Field(False, description="Email address is visible")
+
+
+class CROElements(BaseModel):
+    """Conversion rate optimization elements detected."""
+    
+    has_cta_buttons: bool = Field(False, description="Call-to-action buttons present")
+    has_contact_forms: bool = Field(False, description="Contact forms present")
+    has_pricing_tables: bool = Field(False, description="Pricing information visible")
+    has_testimonials: bool = Field(False, description="Customer testimonials present")
+    has_reviews: bool = Field(False, description="Customer reviews visible")
+    has_social_proof: bool = Field(False, description="Social proof elements present")
+    has_urgency_elements: bool = Field(False, description="Urgency/scarcity elements")
+    has_trust_badges: bool = Field(False, description="Trust badges or certifications")
+
+
+class MobileUsability(BaseModel):
+    """Mobile usability heuristics evaluation."""
+    
+    has_viewport_meta: bool = Field(False, description="Viewport meta tag present")
+    has_touch_targets: bool = Field(False, description="Adequate touch target sizes")
+    has_responsive_design: bool = Field(False, description="Responsive design implemented")
+    has_mobile_navigation: bool = Field(False, description="Mobile-friendly navigation")
+    has_readable_fonts: bool = Field(False, description="Readable font sizes on mobile")
+    has_adequate_spacing: bool = Field(False, description="Adequate spacing between elements")
+
+
+class ContentQuality(BaseModel):
+    """Content quality assessment metrics."""
+    
+    has_proper_headings: bool = Field(False, description="Proper heading structure (H1, H2, etc.)")
+    has_alt_text: bool = Field(False, description="Images have alt text")
+    has_meta_description: bool = Field(False, description="Meta description present")
+    has_meta_keywords: bool = Field(False, description="Meta keywords present")
+    has_structured_data: bool = Field(False, description="Structured data markup present")
+    has_internal_links: bool = Field(False, description="Internal linking structure")
+    has_external_links: bool = Field(False, description="External links present")
+    has_blog_content: bool = Field(False, description="Blog or content section present")
+
+
+class SocialProof(BaseModel):
+    """Social proof elements detected."""
+    
+    has_social_media_links: bool = Field(False, description="Social media links present")
+    has_customer_reviews: bool = Field(False, description="Customer reviews visible")
+    has_testimonials: bool = Field(False, description="Customer testimonials present")
+    has_case_studies: bool = Field(False, description="Case studies or success stories")
+    has_awards_certifications: bool = Field(False, description="Awards or certifications")
+    has_partner_logos: bool = Field(False, description="Partner or client logos visible")
+    has_user_generated_content: bool = Field(False, description="User-generated content present")
+
+
+class HeuristicEvaluationRequest(BaseModel):
+    """Request model for heuristic evaluation."""
+    
+    website_url: HttpUrl = Field(..., description="URL of the website to evaluate")
+    business_id: str = Field(..., description="Business identifier for tracking")
+    run_id: Optional[str] = Field(None, description="Run identifier for tracking")
+    evaluation_parameters: Optional[Dict[str, Any]] = Field(None, description="Additional evaluation parameters")
+    
+    @validator('website_url')
+    def validate_website_url(cls, v):
+        """Validate website URL format."""
+        if not str(v).startswith(('http://', 'https://')):
+            raise ValueError('Website URL must start with http:// or https://')
+        return v
+
+
+class HeuristicEvaluationResponse(BaseModel):
+    """Response model for heuristic evaluation results."""
+    
+    success: bool = Field(..., description="Whether the evaluation was successful")
+    website_url: str = Field(..., description="URL that was evaluated")
+    business_id: str = Field(..., description="Business identifier")
+    run_id: Optional[str] = Field(None, description="Run identifier")
+    evaluation_timestamp: float = Field(..., description="Unix timestamp of evaluation completion")
+    scores: HeuristicScore = Field(..., description="Heuristic evaluation scores")
+    trust_signals: TrustSignals = Field(..., description="Trust signal elements detected")
+    cro_elements: CROElements = Field(..., description="CRO elements detected")
+    mobile_usability: MobileUsability = Field(..., description="Mobile usability assessment")
+    content_quality: ContentQuality = Field(..., description="Content quality assessment")
+    social_proof: SocialProof = Field(..., description="Social proof elements detected")
+    confidence: ConfidenceLevel = Field(..., description="Confidence level of results")
+    error: Optional[str] = Field(None, description="Error message if evaluation failed")
+    error_code: Optional[str] = Field(None, description="Error code if evaluation failed")
+    context: Optional[str] = Field(None, description="Error context if evaluation failed")
+    raw_data: Optional[Dict[str, Any]] = Field(None, description="Raw evaluation data")
+
+
+class HeuristicEvaluationError(BaseModel):
+    """Error response model for heuristic evaluation failures."""
+    
+    success: bool = Field(False, description="Always false for errors")
+    error: str = Field(..., description="Error message")
+    context: str = Field(..., description="Error context")
+    website_url: str = Field(..., description="URL that failed to evaluate")
+    business_id: str = Field(..., description="Business identifier")
+    run_id: Optional[str] = Field(None, description="Run identifier")
+    evaluation_timestamp: float = Field(..., description="Unix timestamp of error")
+    error_code: Optional[str] = Field(None, description="Error code")
+    scores: HeuristicScore = Field(..., description="Default scores (all 0)")
+    trust_signals: TrustSignals = Field(..., description="Empty trust signals")
+    cro_elements: CROElements = Field(..., description="Empty CRO elements")
+    mobile_usability: MobileUsability = Field(..., description="Empty mobile usability")
+    content_quality: ContentQuality = Field(..., description="Empty content quality")
+    social_proof: SocialProof = Field(..., description="Empty social proof")
+    confidence: ConfidenceLevel = Field(ConfidenceLevel.LOW, description="Low confidence due to error")
+
+
 class CoreWebVitals(BaseModel):
     """Core Web Vitals metrics from Lighthouse audit."""
     
