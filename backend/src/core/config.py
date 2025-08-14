@@ -59,7 +59,8 @@ class APIConfig(BaseSettings):
     
     model_config = ConfigDict(
         env_file = ".env",
-        case_sensitive = True
+        case_sensitive = True,
+        extra = "ignore"
     )
 
 
@@ -75,13 +76,16 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "LeadGen Makeover Agent"
     
-    # External APIs
-    api: APIConfig = APIConfig()
-    
     model_config = ConfigDict(
         env_file = ".env",
-        case_sensitive = True
+        case_sensitive = True,
+        extra = "ignore"
     )
+    
+    @property
+    def api(self) -> APIConfig:
+        """Get API configuration."""
+        return APIConfig()
 
 
 # Global settings instance
