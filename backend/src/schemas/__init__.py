@@ -25,6 +25,52 @@ from .yelp_fusion import (
     YelpLocationType
 )
 
+from .business_matching import (
+    ConfidenceLevel,
+    BusinessLocation,
+    BusinessContactInfo,
+    BusinessSourceData,
+    BusinessMatchScore,
+    BusinessMatchCandidate,
+    BusinessMatchingRequest,
+    BusinessMatchingResponse,
+    BusinessMatchingError
+)
+
+from .business_merging import (
+    DataCompletenessScore,
+    MergedBusinessData,
+    MergeConflict,
+    BusinessMergeRequest,
+    BusinessMergeResponse,
+    BusinessMergeError
+)
+
+from .duplicate_detection import (
+    DuplicateType,
+    BusinessFingerprint,
+    DuplicateGroup,
+    DuplicateDetectionRequest,
+    DuplicateDetectionResponse,
+    DuplicateRemovalRequest,
+    DuplicateRemovalResponse,
+    DuplicateDetectionError
+)
+
+from .review_management import (
+    ReviewStatus,
+    ReviewPriority,
+    ReviewFlag,
+    ReviewWorkflow,
+    ReviewAssignmentRequest,
+    ReviewStatusUpdateRequest,
+    ReviewResolutionRequest,
+    ReviewFlagResponse,
+    ReviewWorkflowResponse,
+    PendingReviewsResponse,
+    ReviewManagementError
+)
+
 __all__ = [
     # Authentication schemas
     'GooglePlacesAuthRequest',
@@ -42,5 +88,43 @@ __all__ = [
     'YelpBusinessSearchResponse',
     'YelpBusinessSearchError',
     'YelpBusinessData',
-    'YelpLocationType'
+    'YelpLocationType',
+    # Business matching schemas
+    'ConfidenceLevel',
+    'BusinessLocation',
+    'BusinessContactInfo',
+    'BusinessSourceData',
+    'BusinessMatchScore',
+    'BusinessMatchCandidate',
+    'BusinessMatchingRequest',
+    'BusinessMatchingResponse',
+    'BusinessMatchingError',
+    # Business merging schemas
+    'DataCompletenessScore',
+    'MergedBusinessData',
+    'MergeConflict',
+    'BusinessMergeRequest',
+    'BusinessMergeResponse',
+    'BusinessMergeError',
+    # Duplicate detection schemas
+    'DuplicateType',
+    'BusinessFingerprint',
+    'DuplicateGroup',
+    'DuplicateDetectionRequest',
+    'DuplicateDetectionResponse',
+    'DuplicateRemovalRequest',
+    'DuplicateRemovalResponse',
+    'DuplicateDetectionError',
+    # Review management schemas
+    'ReviewStatus',
+    'ReviewPriority',
+    'ReviewFlag',
+    'ReviewWorkflow',
+    'ReviewAssignmentRequest',
+    'ReviewStatusUpdateRequest',
+    'ReviewResolutionRequest',
+    'ReviewFlagResponse',
+    'ReviewWorkflowResponse',
+    'PendingReviewsResponse',
+    'ReviewManagementError'
 ]

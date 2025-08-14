@@ -20,9 +20,9 @@ class BaseService(ABC):
         logger = logging.getLogger(f"{self.__class__.__name__}")
         logger.setLevel(logging.INFO)
         
-        # Create formatter for structured logging
+        # Create formatter for basic logging (without custom fields)
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - runId:%(runId)s - businessId:%(businessId)s - agentName:%(agentName)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
         # Add handler if not already present
@@ -36,26 +36,48 @@ class BaseService(ABC):
     def log_operation(self, operation: str, run_id: Optional[str] = None, 
                      business_id: Optional[str] = None, **kwargs):
         """Log an operation with structured data."""
-        extra = {
-            'runId': run_id or 'unknown',
-            'businessId': business_id or 'unknown',
-            'agentName': self.service_name
-        }
-        extra.update(kwargs)
+        # Create a structured message with the extra information
+        extra_info = []
+        if run_id:
+            extra_info.append(f"runId:{run_id}")
+        if business_id:
+            extra_info.append(f"businessId:{business_id}")
+        extra_info.append(f"agentName:{self.service_name}")
         
-        self.logger.info(f"Operation: {operation}", extra=extra)
+        # Add any additional kwargs
+        for key, value in kwargs.items():
+            if value is not None:
+                extra_info.append(f"{key}:{value}")
+        
+        # Create the full message
+        message = f"Operation: {operation}"
+        if extra_info:
+            message += f" | {' | '.join(extra_info)}"
+        
+        self.logger.info(message)
     
     def log_error(self, error: Exception, operation: str, run_id: Optional[str] = None,
                   business_id: Optional[str] = None, **kwargs):
         """Log an error with structured data."""
-        extra = {
-            'runId': run_id or 'unknown',
-            'businessId': business_id or 'unknown',
-            'agentName': self.service_name
-        }
-        extra.update(kwargs)
+        # Create a structured message with the extra information
+        extra_info = []
+        if run_id:
+            extra_info.append(f"runId:{run_id}")
+        if business_id:
+            extra_info.append(f"businessId:{business_id}")
+        extra_info.append(f"agentName:{self.service_name}")
         
-        self.logger.error(f"Error in {operation}: {str(error)}", extra=extra)
+        # Add any additional kwargs
+        for key, value in kwargs.items():
+            if value is not None:
+                extra_info.append(f"{key}:{value}")
+        
+        # Create the full message
+        message = f"Error in {operation}: {str(error)}"
+        if extra_info:
+            message += f" | {' | '.join(extra_info)}"
+        
+        self.logger.error(message)
     
     @abstractmethod
     def validate_input(self, data: Any) -> bool:
