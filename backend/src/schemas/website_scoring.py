@@ -284,3 +284,206 @@ class AuditConfiguration(BaseModel):
     enable_core_web_vitals: bool = Field(True, description="Whether to extract Core Web Vitals")
     enable_raw_data: bool = Field(False, description="Whether to include raw audit data in response")
     thresholds: AuditThresholds = Field(default_factory=AuditThresholds, description="Scoring thresholds")
+
+
+class FallbackScore(BaseModel):
+    """Fallback scoring result with heuristic-only scoring and reduced confidence."""
+    
+    # Heuristic-only scores (0-100 scale)
+    trust_score: float = Field(..., ge=0, le=100, description="Trust signal score (0-100)")
+    cro_score: float = Field(..., ge=0, le=100, description="Conversion optimization score (0-100)")
+    mobile_score: float = Field(..., ge=0, le=100, description="Mobile usability score (0-100)")
+    content_score: float = Field(..., ge=0, le=100, description="Content quality score (0-100)")
+    social_score: float = Field(..., ge=0, le=100, description="Social proof score (0-100)")
+    overall_score: float = Field(..., ge=0, le=100, description="Overall fallback score (0-100)")
+    
+    # Reduced confidence for fallback scenarios
+    confidence_level: ConfidenceLevel = Field(..., description="Reduced confidence level for fallback")
+    fallback_reason: str = Field(..., description="Reason for using fallback scoring")
+    fallback_timestamp: float = Field(..., description="Unix timestamp of fallback decision")
+    
+    @validator('overall_score')
+    def validate_overall_score(cls, v):
+        """Validate that overall score is within expected range."""
+        if v < 0 or v > 100:
+            raise ValueError('Overall score must be between 0 and 100')
+        return v
+
+
+class FallbackReason(BaseModel):
+    """Model for tracking fallback reasons and decisions."""
+    
+    failure_type: str = Field(..., description="Type of Lighthouse failure")
+    error_message: str = Field(..., description="Error message from Lighthouse")
+    severity_level: str = Field(..., description="Severity level (low/medium/high/critical)")
+    fallback_decision: str = Field(..., description="Decision made for fallback")
+    retry_attempts: int = Field(0, ge=0, description="Number of retry attempts made")
+    success_status: bool = Field(..., description="Whether fallback was successful")
+    fallback_timestamp: float = Field(..., description="Unix timestamp of fallback decision")
+
+
+class FallbackMetrics(BaseModel):
+    """Metrics for tracking fallback performance and success rates."""
+    
+    fallback_success_rate: float = Field(..., ge=0, le=100, description="Percentage of successful fallbacks")
+    average_fallback_score_quality: float = Field(..., ge=0, le=100, description="Average quality of fallback scores")
+    failure_pattern_analysis: Dict[str, int] = Field(default_factory=dict, description="Analysis of failure patterns")
+    performance_metrics: Dict[str, float] = Field(default_factory=dict, description="Performance metrics for fallback")
+    total_fallbacks: int = Field(0, ge=0, description="Total number of fallbacks attempted")
+    successful_fallbacks: int = Field(0, ge=0, description="Number of successful fallbacks")
+
+
+class FallbackHistory(BaseModel):
+    """Historical fallback data for trend analysis."""
+    
+    business_id: str = Field(..., description="Business identifier")
+    website_url: str = Field(..., description="Website URL")
+    run_id: str = Field(..., description="Run identifier")
+    fallback_timestamp: float = Field(..., description="Unix timestamp of fallback")
+    fallback_reason: FallbackReason = Field(..., description="Reason for fallback")
+    fallback_score: FallbackScore = Field(..., description="Fallback scoring result")
+    lighthouse_failure_context: Dict[str, Any] = Field(default_factory=dict, description="Context of Lighthouse failure")
+
+
+class FallbackQuality(BaseModel):
+    """Quality assessment for heuristic-only fallback results."""
+    
+    reliability_score: float = Field(..., ge=0, le=100, description="Reliability score of fallback results")
+    data_completeness: float = Field(..., ge=0, le=100, description="Completeness of heuristic data")
+    confidence_adjustment: float = Field(..., description="Confidence adjustment factor")
+    quality_indicators: Dict[str, bool] = Field(default_factory=dict, description="Quality indicators")
+    recommendation: str = Field(..., description="Recommendation for using fallback results")
+
+
+class FallbackScoringRequest(BaseModel):
+    """Request model for fallback scoring."""
+    
+    website_url: HttpUrl = Field(..., description="URL of the website to score")
+    business_id: str = Field(..., description="Business identifier for tracking")
+    run_id: Optional[str] = Field(None, description="Run identifier for tracking")
+    lighthouse_failure_reason: str = Field(..., description="Reason why Lighthouse failed")
+    fallback_parameters: Optional[Dict[str, Any]] = Field(None, description="Additional fallback parameters")
+    
+    @validator('website_url')
+    def validate_website_url(cls, v):
+        """Validate website URL format."""
+        if not str(v).startswith(('http://', 'https://')):
+            raise ValueError('Website URL must start with http:// or https://')
+        return v
+
+
+class FallbackScoringResponse(BaseModel):
+    """Response model for fallback scoring results."""
+    
+    success: bool = Field(..., description="Whether the fallback scoring was successful")
+    website_url: str = Field(..., description="URL that was scored")
+    business_id: str = Field(..., description="Business identifier")
+    run_id: Optional[str] = Field(None, description="Run identifier")
+    fallback_timestamp: float = Field(..., description="Unix timestamp of fallback scoring")
+    fallback_score: FallbackScore = Field(..., description="Fallback scoring results")
+    fallback_reason: FallbackReason = Field(..., description="Reason for fallback")
+    fallback_quality: FallbackQuality = Field(..., description="Quality assessment of fallback results")
+    retry_attempts: int = Field(0, ge=0, description="Number of retry attempts made")
+    error: Optional[str] = Field(None, description="Error message if fallback failed")
+    error_code: Optional[str] = Field(None, description="Error code if fallback failed")
+    context: Optional[str] = Field(None, description="Error context if fallback failed")
+
+
+class FallbackScoringError(BaseModel):
+    """Error response model for fallback scoring failures."""
+    
+    success: bool = Field(False, description="Always false for errors")
+    error: str = Field(..., description="Error message")
+    context: str = Field(..., description="Error context")
+    website_url: str = Field(..., description="URL that failed to score")
+    business_id: str = Field(..., description="Business identifier")
+    run_id: Optional[str] = Field(None, description="Run identifier")
+    fallback_timestamp: float = Field(..., description="Unix timestamp of error")
+    error_code: Optional[str] = Field(None, description="Error code")
+    fallback_score: FallbackScore = Field(..., description="Default fallback scores (all 0)")
+    fallback_reason: FallbackReason = Field(..., description="Default fallback reason")
+    fallback_quality: FallbackQuality = Field(..., description="Default fallback quality")
+
+
+class FallbackMonitoringResponse(BaseModel):
+    """Response model for fallback monitoring and analytics."""
+    
+    success: bool = Field(..., description="Whether the monitoring data was retrieved successfully")
+    timestamp: float = Field(..., description="Unix timestamp of monitoring data")
+    metrics: FallbackMetrics = Field(..., description="Fallback performance metrics")
+    recent_fallbacks: List[FallbackHistory] = Field(default_factory=list, description="Recent fallback history")
+    failure_patterns: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Analysis of failure patterns")
+    recommendations: List[str] = Field(default_factory=list, description="Recommendations for improvement")
+
+
+# Score Validation and Confidence Schemas
+
+class ValidationMetrics(BaseModel):
+    """Metrics for score validation and confidence calculation."""
+    
+    correlation_coefficient: float = Field(..., ge=-1, le=1, description="Pearson correlation coefficient between scoring methods")
+    statistical_significance: float = Field(..., ge=0, le=1, description="Statistical significance of correlation")
+    variance_analysis: float = Field(..., ge=0, description="Variance analysis between score sets")
+    reliability_indicator: float = Field(..., ge=0, le=1, description="Overall reliability indicator")
+
+
+class IssuePriority(BaseModel):
+    """Priority ranking for detected issues."""
+    
+    category: str = Field(..., description="Issue category (performance, accessibility, seo, etc.)")
+    priority_level: str = Field(..., description="Priority level (critical, high, medium, low)")
+    business_impact_score: float = Field(..., ge=0, le=1, description="Business impact score (0-1)")
+    recommended_action: str = Field(..., description="Recommended action to resolve issue")
+    description: str = Field(..., description="Description of the issue")
+
+
+class FinalScore(BaseModel):
+    """Final weighted score with confidence indicators."""
+    
+    weighted_score: float = Field(..., ge=0, le=100, description="Weighted final score (0-100)")
+    confidence_level: ConfidenceLevel = Field(..., description="Confidence level of final score")
+    discrepancy_count: int = Field(..., ge=0, description="Number of discrepancies detected")
+    validation_status: str = Field(..., description="Status of validation process")
+
+
+class ScoreValidationResult(BaseModel):
+    """Complete result of score validation and confidence calculation."""
+    
+    business_id: str = Field(..., description="Business identifier")
+    run_id: str = Field(..., description="Processing run identifier")
+    confidence_level: ConfidenceLevel = Field(..., description="Overall confidence level")
+    correlation_coefficient: float = Field(..., ge=-1, le=1, description="Correlation between scoring methods")
+    discrepancy_count: int = Field(..., ge=0, description="Number of discrepancies detected")
+    final_score: FinalScore = Field(..., description="Final weighted score with confidence")
+    validation_metrics: ValidationMetrics = Field(..., description="Detailed validation metrics")
+    issue_priorities: List[IssuePriority] = Field(default_factory=list, description="Prioritized list of issues")
+    validation_timestamp: str = Field(..., description="ISO timestamp of validation")
+
+
+class ScoreValidationRequest(BaseModel):
+    """Request model for score validation."""
+    
+    business_id: str = Field(..., description="Business identifier")
+    run_id: str = Field(..., description="Processing run identifier")
+    lighthouse_scores: List[WebsiteScore] = Field(..., description="Lighthouse scoring results")
+    heuristic_scores: List[HeuristicScore] = Field(..., description="Heuristic scoring results")
+    validation_parameters: Optional[Dict[str, Any]] = Field(None, description="Additional validation parameters")
+
+
+class ScoreValidationResponse(BaseModel):
+    """Response model for score validation."""
+    
+    success: bool = Field(..., description="Whether validation was successful")
+    validation_result: ScoreValidationResult = Field(..., description="Complete validation results")
+    processing_time: float = Field(..., description="Processing time in seconds")
+    timestamp: str = Field(..., description="ISO timestamp of response")
+
+
+class ScoreValidationError(BaseModel):
+    """Error response model for score validation failures."""
+    
+    success: bool = Field(False, description="Always false for errors")
+    error: str = Field(..., description="Error message")
+    business_id: str = Field(..., description="Business identifier")
+    run_id: str = Field(..., description="Processing run identifier")
+    timestamp: str = Field(..., description="ISO timestamp of error")

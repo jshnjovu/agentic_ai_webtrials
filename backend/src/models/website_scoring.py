@@ -4,7 +4,7 @@ Database models for website scoring and Lighthouse audit results.
 
 from datetime import datetime
 from typing import Optional, Dict, Any
-from sqlalchemy import Column, String, Float, DateTime, Text, JSON, Index, Boolean
+from sqlalchemy import Column, String, Float, DateTime, Text, JSON, Index, Boolean, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -379,3 +379,426 @@ class LighthouseAuditResult(Base):
             error_context=data.get('context'),
             audit_timestamp=datetime.fromtimestamp(data.get('audit_timestamp', datetime.utcnow().timestamp()))
         )
+
+
+class FallbackScore(Base):
+    """Database model for fallback scoring results."""
+    
+    __tablename__ = "fallback_scores"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Business and run identification
+    business_id = Column(String(255), nullable=False, index=True)
+    run_id = Column(String(255), nullable=True, index=True)
+    
+    # Website information
+    website_url = Column(String(500), nullable=False, index=True)
+    
+    # Heuristic-only scores (0-100 scale)
+    trust_score = Column(Float, nullable=False)
+    cro_score = Column(Float, nullable=False)
+    mobile_score = Column(Float, nullable=False)
+    content_score = Column(Float, nullable=False)
+    social_score = Column(Float, nullable=False)
+    overall_score = Column(Float, nullable=False)
+    
+    # Fallback-specific fields
+    confidence_level = Column(String(20), nullable=False, default="low")
+    fallback_reason = Column(String(500), nullable=False)
+    fallback_timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    
+    # Metadata
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_fallback_scores_business_timestamp', 'business_id', 'fallback_timestamp'),
+        Index('idx_fallback_scores_url_timestamp', 'website_url', 'fallback_timestamp'),
+        Index('idx_fallback_scores_run_id', 'run_id'),
+        Index('idx_fallback_scores_overall_score', 'overall_score'),
+        Index('idx_fallback_scores_confidence', 'confidence_level'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'business_id': self.business_id,
+            'run_id': self.run_id,
+            'website_url': self.website_url,
+            'trust_score': self.trust_score,
+            'cro_score': self.cro_score,
+            'mobile_score': self.mobile_score,
+            'content_score': self.content_score,
+            'social_score': self.social_score,
+            'overall_score': self.overall_score,
+            'confidence_level': self.confidence_level,
+            'fallback_reason': self.fallback_reason,
+            'fallback_timestamp': self.fallback_timestamp.isoformat() if self.fallback_timestamp else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class FallbackReason(Base):
+    """Database model for tracking fallback reasons and decisions."""
+    
+    __tablename__ = "fallback_reasons"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Business and run identification
+    business_id = Column(String(255), nullable=False, index=True)
+    run_id = Column(String(255), nullable=True, index=True)
+    
+    # Fallback reason details
+    failure_type = Column(String(100), nullable=False)
+    error_message = Column(Text, nullable=False)
+    severity_level = Column(String(20), nullable=False)
+    fallback_decision = Column(String(200), nullable=False)
+    retry_attempts = Column(Integer, nullable=False, default=0)
+    success_status = Column(Boolean, nullable=False, default=False)
+    
+    # Timestamps
+    fallback_timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_fallback_reasons_business_timestamp', 'business_id', 'fallback_timestamp'),
+        Index('idx_fallback_reasons_run_id', 'run_id'),
+        Index('idx_fallback_reasons_failure_type', 'failure_type'),
+        Index('idx_fallback_reasons_severity', 'severity_level'),
+        Index('idx_fallback_reasons_success', 'success_status'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'business_id': self.business_id,
+            'run_id': self.run_id,
+            'failure_type': self.failure_type,
+            'error_message': self.error_message,
+            'severity_level': self.severity_level,
+            'fallback_decision': self.fallback_decision,
+            'retry_attempts': self.retry_attempts,
+            'success_status': self.success_status,
+            'fallback_timestamp': self.fallback_timestamp.isoformat() if self.fallback_timestamp else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class FallbackMetrics(Base):
+    """Database model for tracking fallback performance metrics."""
+    
+    __tablename__ = "fallback_metrics"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Metrics data
+    fallback_success_rate = Column(Float, nullable=False)
+    average_fallback_score_quality = Column(Float, nullable=False)
+    failure_pattern_analysis = Column(JSON, nullable=True)
+    performance_metrics = Column(JSON, nullable=True)
+    total_fallbacks = Column(Integer, nullable=False, default=0)
+    successful_fallbacks = Column(Integer, nullable=False, default=0)
+    
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_fallback_metrics_created', 'created_at'),
+        Index('idx_fallback_metrics_success_rate', 'fallback_success_rate'),
+        Index('idx_fallback_metrics_quality', 'average_fallback_score_quality'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'fallback_success_rate': self.fallback_success_rate,
+            'average_fallback_score_quality': self.average_fallback_score_quality,
+            'failure_pattern_analysis': self.failure_pattern_analysis,
+            'performance_metrics': self.performance_metrics,
+            'total_fallbacks': self.total_fallbacks,
+            'successful_fallbacks': self.successful_fallbacks,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class FallbackHistory(Base):
+    """Database model for historical fallback data."""
+    
+    __tablename__ = "fallback_history"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Business and run identification
+    business_id = Column(String(255), nullable=False, index=True)
+    website_url = Column(String(500), nullable=False, index=True)
+    run_id = Column(String(255), nullable=True, index=True)
+    
+    # Fallback data
+    fallback_timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    fallback_reason_id = Column(UUID(as_uuid=True), nullable=True)
+    fallback_score_id = Column(UUID(as_uuid=True), nullable=True)
+    lighthouse_failure_context = Column(JSON, nullable=True)
+    
+    # Metadata
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_fallback_history_business_timestamp', 'business_id', 'fallback_timestamp'),
+        Index('idx_fallback_history_url_timestamp', 'website_url', 'fallback_timestamp'),
+        Index('idx_fallback_history_run_id', 'run_id'),
+        Index('idx_fallback_history_reason_id', 'fallback_reason_id'),
+        Index('idx_fallback_history_score_id', 'fallback_score_id'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'business_id': self.business_id,
+            'website_url': self.website_url,
+            'run_id': self.run_id,
+            'fallback_timestamp': self.fallback_timestamp.isoformat() if self.fallback_timestamp else None,
+            'fallback_reason_id': str(self.fallback_reason_id) if self.fallback_reason_id else None,
+            'fallback_score_id': str(self.fallback_score_id) if self.fallback_score_id else None,
+            'lighthouse_failure_context': self.lighthouse_failure_context,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class FallbackQuality(Base):
+    """Database model for fallback quality assessment."""
+    
+    __tablename__ = "fallback_quality"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Quality metrics
+    reliability_score = Column(Float, nullable=False)
+    data_completeness = Column(Float, nullable=False)
+    confidence_adjustment = Column(Float, nullable=False)
+    quality_indicators = Column(JSON, nullable=True)
+    recommendation = Column(Text, nullable=False)
+    
+    # Associated fallback score
+    fallback_score_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_fallback_quality_score_id', 'fallback_score_id'),
+        Index('idx_fallback_quality_reliability', 'reliability_score'),
+        Index('idx_fallback_quality_completeness', 'data_completeness'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'reliability_score': self.reliability_score,
+            'data_completeness': self.data_completeness,
+            'confidence_adjustment': self.confidence_adjustment,
+            'quality_indicators': self.quality_indicators,
+            'recommendation': self.recommendation,
+            'fallback_score_id': str(self.fallback_score_id),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+# Score Validation and Confidence Models
+
+class ScoreValidationResult(Base):
+    """Database model for score validation results."""
+    
+    __tablename__ = "score_validation_results"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Business and run identification
+    business_id = Column(String(255), nullable=False, index=True)
+    run_id = Column(String(255), nullable=False, index=True)
+    
+    # Validation results
+    confidence_level = Column(String(20), nullable=False, default="low")
+    correlation_coefficient = Column(Float, nullable=False)
+    discrepancy_count = Column(Integer, nullable=False, default=0)
+    
+    # Timestamps
+    validation_timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_score_validation_business_timestamp', 'business_id', 'validation_timestamp'),
+        Index('idx_score_validation_run_id', 'run_id'),
+        Index('idx_score_validation_confidence', 'confidence_level'),
+        Index('idx_score_validation_correlation', 'correlation_coefficient'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'business_id': self.business_id,
+            'run_id': self.run_id,
+            'confidence_level': self.confidence_level,
+            'correlation_coefficient': self.correlation_coefficient,
+            'discrepancy_count': self.discrepancy_count,
+            'validation_timestamp': self.validation_timestamp.isoformat() if self.validation_timestamp else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class ValidationMetrics(Base):
+    """Database model for validation metrics."""
+    
+    __tablename__ = "validation_metrics"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Associated validation result
+    validation_result_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    
+    # Metrics
+    correlation_coefficient = Column(Float, nullable=False)
+    statistical_significance = Column(Float, nullable=False)
+    variance_analysis = Column(Float, nullable=False)
+    reliability_indicator = Column(Float, nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_validation_metrics_result_id', 'validation_result_id'),
+        Index('idx_validation_metrics_reliability', 'reliability_indicator'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'validation_result_id': str(self.validation_result_id),
+            'correlation_coefficient': self.correlation_coefficient,
+            'statistical_significance': self.statistical_significance,
+            'variance_analysis': self.variance_analysis,
+            'reliability_indicator': self.reliability_indicator,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class IssuePriority(Base):
+    """Database model for issue priorities."""
+    
+    __tablename__ = "issue_priorities"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Associated validation result
+    validation_result_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    
+    # Issue details
+    category = Column(String(100), nullable=False, index=True)
+    priority_level = Column(String(20), nullable=False, index=True)
+    business_impact_score = Column(Float, nullable=False)
+    recommended_action = Column(Text, nullable=False)
+    description = Column(Text, nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_issue_priorities_result_id', 'validation_result_id'),
+        Index('idx_issue_priorities_category', 'category'),
+        Index('idx_issue_priorities_priority', 'priority_level'),
+        Index('idx_issue_priorities_impact', 'business_impact_score'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'validation_result_id': str(self.validation_result_id),
+            'category': self.category,
+            'priority_level': self.priority_level,
+            'business_impact_score': self.business_impact_score,
+            'recommended_action': self.recommended_action,
+            'description': self.description,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class FinalScore(Base):
+    """Database model for final weighted scores."""
+    
+    __tablename__ = "final_scores"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Associated validation result
+    validation_result_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    
+    # Score details
+    weighted_score = Column(Float, nullable=False)
+    confidence_level = Column(String(20), nullable=False)
+    discrepancy_count = Column(Integer, nullable=False, default=0)
+    validation_status = Column(String(50), nullable=False, default="completed")
+    
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_final_scores_result_id', 'validation_result_id'),
+        Index('idx_final_scores_weighted', 'weighted_score'),
+        Index('idx_final_scores_confidence', 'confidence_level'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model to dictionary representation."""
+        return {
+            'id': str(self.id),
+            'validation_result_id': str(self.validation_result_id),
+            'weighted_score': self.weighted_score,
+            'confidence_level': self.confidence_level,
+            'discrepancy_count': self.discrepancy_count,
+            'validation_status': self.validation_status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
