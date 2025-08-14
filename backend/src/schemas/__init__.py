@@ -17,6 +17,14 @@ from .business_search import (
     LocationType
 )
 
+from .yelp_fusion import (
+    YelpBusinessSearchRequest,
+    YelpBusinessSearchResponse,
+    YelpBusinessSearchError,
+    YelpBusinessData,
+    YelpLocationType
+)
+
 __all__ = [
     # Authentication schemas
     'GooglePlacesAuthRequest',
@@ -28,5 +36,11 @@ __all__ = [
     'BusinessSearchResponse',
     'BusinessSearchError',
     'BusinessData',
-    'LocationType'
+    'LocationType',
+    # Yelp Fusion schemas
+    'YelpBusinessSearchRequest',
+    'YelpBusinessSearchResponse',
+    'YelpBusinessSearchError',
+    'YelpBusinessData',
+    'YelpLocationType'
 ]

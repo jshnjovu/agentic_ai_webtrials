@@ -8,7 +8,8 @@ from contextlib import asynccontextmanager
 import logging
 
 from src.core import settings, validate_environment
-from src.api.v1 import authentication, business_search
+from src.api.v1 import authentication, business_search, rate_limit_monitoring
+from src.middleware.rate_limit_middleware import YelpFusionRateLimitMiddleware
 
 
 @asynccontextmanager
@@ -48,9 +49,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add Yelp Fusion rate limiting middleware
+app.add_middleware(YelpFusionRateLimitMiddleware)
+
 # Include API routers
 app.include_router(authentication.router, prefix=settings.API_V1_STR)
 app.include_router(business_search.router, prefix=settings.API_V1_STR)
+app.include_router(rate_limit_monitoring.router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")

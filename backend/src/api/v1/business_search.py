@@ -9,7 +9,11 @@ from src.schemas import (
     BusinessSearchRequest, BusinessSearchResponse, BusinessSearchError,
     LocationType
 )
-from src.services import GooglePlacesService
+from src.schemas.yelp_fusion import (
+    YelpBusinessSearchRequest, YelpBusinessSearchResponse, YelpBusinessSearchError,
+    YelpLocationType
+)
+from src.services import GooglePlacesService, YelpFusionService
 
 router = APIRouter(prefix="/business-search", tags=["business-search"])
 
@@ -17,6 +21,11 @@ router = APIRouter(prefix="/business-search", tags=["business-search"])
 def get_google_places_service() -> GooglePlacesService:
     """Dependency to get Google Places service instance."""
     return GooglePlacesService()
+
+
+def get_yelp_fusion_service() -> YelpFusionService:
+    """Dependency to get Yelp Fusion service instance."""
+    return YelpFusionService()
 
 
 @router.post("/google-places/search", response_model=BusinessSearchResponse)
@@ -220,6 +229,203 @@ async def get_next_page(
             status_code=500,
             detail=f"Internal server error during pagination: {str(e)}"
         )
+
+
+@router.post("/yelp-fusion/search", response_model=YelpBusinessSearchResponse)
+async def search_yelp_businesses(
+    request: YelpBusinessSearchRequest,
+    service: YelpFusionService = Depends(get_yelp_fusion_service)
+) -> YelpBusinessSearchResponse:
+    """
+    Search for businesses using Yelp Fusion API.
+    
+    Args:
+        request: Yelp business search request with term, location, and filters
+        service: Yelp Fusion service instance
+        
+    Returns:
+        Yelp business search response with results
+        
+    Raises:
+        HTTPException: If search fails or validation errors occur
+    """
+    try:
+        # Generate run_id if not provided
+        if not request.run_id:
+            request.run_id = str(uuid.uuid4())
+        
+        # Validate request
+        if not service.validate_input(request):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Yelp business search request"
+            )
+        
+        # Execute search
+        result = service.search_businesses(request)
+        
+        # Handle error responses
+        if isinstance(result, YelpBusinessSearchError):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": result.error,
+                    "error_code": result.error_code,
+                    "context": result.context,
+                    "term": result.term,
+                    "location": result.location
+                }
+            )
+        
+        # Return successful response
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error during Yelp business search: {str(e)}"
+        )
+
+
+@router.get("/yelp-fusion/search", response_model=YelpBusinessSearchResponse)
+async def search_yelp_businesses_get(
+    term: str = Query(..., description="Search term for businesses", min_length=1, max_length=200),
+    location: str = Query(..., description="Location to search in (city, address, coordinates, or zip code)"),
+    location_type: YelpLocationType = Query(default=YelpLocationType.CITY, description="Type of location input"),
+    categories: Optional[str] = Query(None, description="Comma-separated list of business categories to filter by"),
+    radius: Optional[int] = Query(default=40000, description="Search radius in meters (max 40000)", ge=100, le=40000),
+    limit: Optional[int] = Query(default=20, description="Maximum number of results to return", ge=1, le=50),
+    offset: Optional[int] = Query(default=0, description="Offset for pagination", ge=0),
+    sort_by: Optional[str] = Query(default="best_match", description="Sort order: best_match, rating, review_count, distance"),
+    price: Optional[str] = Query(None, description="Price filter: 1, 2, 3, 4 (1=$, 4=$$$$)"),
+    open_now: Optional[bool] = Query(None, description="Filter for businesses currently open"),
+    run_id: Optional[str] = Query(None, description="Unique identifier for the processing run"),
+    service: YelpFusionService = Depends(get_yelp_fusion_service)
+) -> YelpBusinessSearchResponse:
+    """
+    Search for businesses using Yelp Fusion API (GET endpoint).
+    
+    Args:
+        term: Search term for businesses
+        location: Location to search in
+        location_type: Type of location input
+        categories: Business category filters
+        radius: Search radius in meters
+        limit: Maximum number of results
+        offset: Offset for pagination
+        sort_by: Sort order
+        price: Price filter
+        open_now: Open now filter
+        run_id: Optional run identifier
+        service: Yelp Fusion service instance
+        
+    Returns:
+        Yelp business search response with results
+        
+    Raises:
+        HTTPException: If search fails or validation errors occur
+    """
+    try:
+        # Generate run_id if not provided
+        if not run_id:
+            run_id = str(uuid.uuid4())
+        
+        # Parse categories if provided
+        category_list = None
+        if categories:
+            category_list = [cat.strip() for cat in categories.split(",") if cat.strip()]
+        
+        # Create request object
+        request = YelpBusinessSearchRequest(
+            term=term,
+            location=location,
+            location_type=location_type,
+            categories=category_list,
+            radius=radius,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            price=price,
+            open_now=open_now,
+            run_id=run_id
+        )
+        
+        # Validate request
+        if not service.validate_input(request):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Yelp business search request"
+            )
+        
+        # Execute search
+        result = service.search_businesses(request)
+        
+        # Handle error responses
+        if isinstance(result, YelpBusinessSearchError):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": result.error,
+                    "error_code": result.error_code,
+                    "context": result.context,
+                    "term": result.term,
+                    "location": result.location
+                }
+            )
+        
+        # Return successful response
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error during Yelp business search: {str(e)}"
+        )
+
+
+@router.get("/yelp-fusion/search/health")
+async def yelp_health_check(
+    service: YelpFusionService = Depends(get_yelp_fusion_service)
+):
+    """
+    Health check endpoint for Yelp Fusion business search service.
+    
+    Args:
+        service: Yelp Fusion service instance
+        
+    Returns:
+        Health status of the service
+    """
+    try:
+        # Simple health check - try to create service instance
+        if service and hasattr(service, 'search_businesses'):
+            return {
+                "status": "healthy",
+                "service": "YelpFusionService",
+                "message": "Service is operational",
+                "capabilities": [
+                    "business_search",
+                    "location_validation",
+                    "data_extraction",
+                    "rate_limiting"
+                ]
+            }
+        else:
+            return {
+                "status": "unhealthy",
+                "service": "YelpFusionService",
+                "message": "Service not properly initialized"
+            }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "service": "YelpFusionService",
+            "message": f"Service health check failed: {str(e)}"
+        }
 
 
 @router.get("/google-places/search/health")
