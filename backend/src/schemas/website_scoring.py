@@ -487,3 +487,12 @@ class ScoreValidationError(BaseModel):
     business_id: str = Field(..., description="Business identifier")
     run_id: str = Field(..., description="Processing run identifier")
     timestamp: str = Field(..., description="ISO timestamp of error")
+
+
+class WebsiteScoringRequest(BaseModel):
+    """Request model for website scoring."""
+    
+    website_url: str = Field(..., description="URL of the website to score")
+    business_id: Optional[str] = Field(None, description="Business identifier")
+    scoring_method: str = Field("comprehensive", description="Scoring method to use")
+    run_id: Optional[str] = Field(None, description="Processing run identifier")

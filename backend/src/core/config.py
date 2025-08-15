@@ -10,23 +10,22 @@ from pydantic import field_validator, ConfigDict
 
 
 class APIConfig(BaseSettings):
-    """Configuration for external API integrations."""
+    """API configuration with rate limiting and timeout settings."""
     
-    # Google Places API Configuration
-    GOOGLE_PLACES_API_KEY: str
-    
-    # Yelp Fusion API Configuration  
-    YELP_FUSION_API_KEY: str
-    
-    # Lighthouse API Configuration (Google PageSpeed Insights)
-    LIGHTHOUSE_API_KEY: str
+    # API Keys (with defaults for development)
+    GOOGLE_PLACES_API_KEY: str = "development_key"
+    YELP_FUSION_API_KEY: str = "development_key"
+    LIGHTHOUSE_API_KEY: str = "development_key"
     
     # Rate Limiting Configuration
     GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE: int = 100
     YELP_FUSION_RATE_LIMIT_PER_DAY: int = 5000
     LIGHTHOUSE_RATE_LIMIT_PER_DAY: int = 25000
     LIGHTHOUSE_RATE_LIMIT_PER_MINUTE: int = 240
+    
+    # Heuristic Evaluation Configuration
     HEURISTICS_RATE_LIMIT_PER_MINUTE: int = 60
+    HEURISTICS_EVALUATION_TIMEOUT_SECONDS: int = 15
     FALLBACK_RATE_LIMIT_PER_MINUTE: int = 120
     
     # API Timeout Settings
@@ -35,7 +34,6 @@ class APIConfig(BaseSettings):
     LIGHTHOUSE_CONNECT_TIMEOUT_SECONDS: int = 10
     LIGHTHOUSE_READ_TIMEOUT_SECONDS: int = 25
     LIGHTHOUSE_FALLBACK_TIMEOUT_SECONDS: int = 15
-    HEURISTICS_EVALUATION_TIMEOUT_SECONDS: int = 15
     
     # Circuit Breaker Configuration
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
