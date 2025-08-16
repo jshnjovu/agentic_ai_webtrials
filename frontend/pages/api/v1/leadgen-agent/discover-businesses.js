@@ -22,71 +22,45 @@ export default async function handler(req, res) {
       });
     }
 
-    // For Vercel deployment, we'll use a simplified approach
-    // In production, this would call your backend services
-    const businesses = await discoverBusinesses(location, niche);
+    // Get backend URL from environment variable
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://agentic-ai-webtrials-ngj1hqhkz-healthy-entrepreneursnl.vercel.app';
+    
+    // Proxy request to backend
+    const backendResponse = await fetch(`${backendUrl}/discover_businesses?location=${encodeURIComponent(location)}&niche=${encodeURIComponent(niche)}`);
+    
+    if (!backendResponse.ok) {
+      throw new Error(`Backend responded with status: ${backendResponse.status}`);
+    }
 
-    const transformedData = {
-      results: businesses.map(business => ({
-        business_name: business.name,
-        website: business.website,
-        score_overall: business.score,
-        address: business.address,
-        phone: business.phone,
-        niche: business.niche,
-        source: business.source
-      })),
-      total: businesses.length,
-      success: true,
-      message: `Found ${businesses.length} businesses in ${location} for ${niche}`,
-      source: 'vercel-deployment'
-    };
-
-    res.status(200).json(transformedData);
+    const backendData = await backendResponse.json();
+    
+    // Return backend response
+    res.status(200).json(backendData);
 
   } catch (error) {
     console.error('API route error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: error.message
-    });
+    
+    // Fallback to sample data if backend is unavailable
+    const { location, niche } = req.query;
+    const fallbackData = {
+      results: [
+        {
+          business_name: "Local Business 1 (Fallback)",
+          website: "https://example1.com",
+          score_overall: Math.floor(Math.random() * 100),
+          address: `123 Main St, ${location}`,
+          phone: "+1-555-0001",
+          niche: niche,
+          source: "fallback"
+        }
+      ],
+      total: 1,
+      success: false,
+      message: `Backend unavailable, showing fallback data for ${location} ${niche}`,
+      error: error.message,
+      source: 'fallback'
+    };
+    
+    res.status(200).json(fallbackData);
   }
-}
-
-// Simplified business discovery function for Vercel
-async function discoverBusinesses(location, niche) {
-  // This is a placeholder for real business discovery
-  // In production, integrate with Google Places API, Yelp Fusion, etc.
-  
-  const sampleBusinesses = [
-    {
-      name: "Local Business 1",
-      website: "https://example1.com",
-      score: Math.floor(Math.random() * 100),
-      address: `123 Main St, ${location}`,
-      phone: "+1-555-0001",
-      niche: niche,
-      source: "sample"
-    },
-    {
-      name: "Local Business 2", 
-      website: "https://example2.com",
-      score: Math.floor(Math.random() * 100),
-      address: `456 Oak Ave, ${location}`,
-      phone: "+1-555-0002",
-      niche: niche,
-      source: "sample"
-    },
-    {
-      name: "Local Business 3",
-      website: "https://example3.com", 
-      score: Math.floor(Math.random() * 100),
-      address: `789 Pine St, ${location}`,
-      phone: "+1-555-0003",
-      niche: niche,
-      source: "sample"
-    }
-  ];
-
-  return sampleBusinesses;
 }
