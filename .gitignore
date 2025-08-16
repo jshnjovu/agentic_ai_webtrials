@@ -88,3 +88,4 @@ frontend/node_modules/
 .bmad-core/
 .cursor/
 .bmad-infrastructure-devops/
+.vercel
