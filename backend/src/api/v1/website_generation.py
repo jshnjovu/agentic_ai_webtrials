@@ -12,7 +12,7 @@ import os
 
 from src.services.website_template_service import WebsiteTemplateService
 from src.schemas.website_scoring import WebsiteScoringResponse
-from src.core.config import get_settings
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/website-generation", tags=["website-generation"])

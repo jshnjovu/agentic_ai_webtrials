@@ -1,14 +1,14 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 import uuid
-from src.services import LeadgenAiAgent
+from src.services import LeadGenAIAgent
 
 router = APIRouter(prefix="/leadgen-agent", tags=["leadgen-agent"])
 
 
-def get_leadgen_agent_service() -> LeadgenAiAgent:
+def get_leadgen_agent_service() -> LeadGenAIAgent:
     """Dependency to get leadgen AI agent service instance."""
-    return LeadgenAiAgent()
+    return LeadGenAIAgent()
 
 
 @router.post("/discover-businesses")
@@ -23,7 +23,7 @@ async def discover_businesses(
     run_id: Optional[str] = Query(
         None, description="Unique identifier for the processing run"
     ),
-    service: LeadgenAiAgent = Depends(get_leadgen_agent_service),
+    service: LeadGenAIAgent = Depends(get_leadgen_agent_service),
 ):
     """
     Discover businesses based on location and niche, using multiple sources.
