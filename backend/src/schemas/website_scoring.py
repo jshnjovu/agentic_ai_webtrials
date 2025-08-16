@@ -716,3 +716,44 @@ class WebsiteScoringRequest(BaseModel):
     business_id: Optional[str] = Field(None, description="Business identifier")
     scoring_method: str = Field("comprehensive", description="Scoring method to use")
     run_id: Optional[str] = Field(None, description="Processing run identifier")
+
+
+class WebsiteScoringResponse(BaseModel):
+    """Response model for website scoring."""
+
+    success: bool = Field(..., description="Whether the scoring was successful")
+    website_url: str = Field(..., description="URL that was scored")
+    business_id: Optional[str] = Field(None, description="Business identifier")
+    run_id: Optional[str] = Field(None, description="Processing run identifier")
+    scoring_timestamp: float = Field(..., description="Unix timestamp of scoring completion")
+    scoring_method: str = Field(..., description="Scoring method used")
+    
+    # Lighthouse scores (if available)
+    lighthouse_scores: Optional[WebsiteScore] = Field(None, description="Lighthouse performance scores")
+    core_web_vitals: Optional[CoreWebVitals] = Field(None, description="Core Web Vitals metrics")
+    
+    # Heuristic scores (if available)
+    heuristic_scores: Optional[HeuristicScore] = Field(None, description="Heuristic evaluation scores")
+    trust_signals: Optional[TrustSignals] = Field(None, description="Trust signal elements detected")
+    cro_elements: Optional[CROElements] = Field(None, description="CRO elements detected")
+    mobile_usability: Optional[MobileUsability] = Field(None, description="Mobile usability assessment")
+    content_quality: Optional[ContentQuality] = Field(None, description="Content quality assessment")
+    social_proof: Optional[SocialProof] = Field(None, description="Social proof elements detected")
+    
+    # Fallback scores (if Lighthouse failed)
+    fallback_scores: Optional[FallbackScore] = Field(None, description="Fallback scoring results")
+    
+    # Overall results
+    overall_score: float = Field(..., ge=0, le=100, description="Overall website score (0-100)")
+    confidence_level: ConfidenceLevel = Field(..., description="Confidence level of results")
+    scoring_status: str = Field(..., description="Status of scoring process")
+    
+    # Error handling
+    error: Optional[str] = Field(None, description="Error message if scoring failed")
+    error_code: Optional[str] = Field(None, description="Error code if scoring failed")
+    context: Optional[str] = Field(None, description="Error context if scoring failed")
+    
+    # Additional data
+    raw_data: Optional[Dict[str, Any]] = Field(None, description="Raw scoring data")
+    recommendations: List[str] = Field(default_factory=list, description="Recommendations for improvement")
+    priority_issues: List[IssuePriority] = Field(default_factory=list, description="High-priority issues to address")

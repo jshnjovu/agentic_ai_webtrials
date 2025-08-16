@@ -82,6 +82,7 @@ from .website_scoring import (
     WebsiteScoringSummary,
     AuditThresholds,
     AuditConfiguration,
+    WebsiteScoringResponse,
 )
 
 __all__ = [
@@ -151,4 +152,5 @@ __all__ = [
     "WebsiteScoringSummary",
     "AuditThresholds",
     "AuditConfiguration",
+    "WebsiteScoringResponse",
 ]
