@@ -74,9 +74,16 @@ export default function LeadGenForm() {
 
     try {
       const response = await fetch(
-        `/api/v1/leadgen-agent/discover-businesses?location=${values.location}&niche=${values.niche}`,
+        `/api/v1/leadgen-agent/discover-businesses`,
         {
           method: "POST",
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            location: values.location,
+            niche: values.niche
+          })
         }
       );
 
