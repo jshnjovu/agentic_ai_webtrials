@@ -10,8 +10,14 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Check if method is allowed
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
-    const { location, niche } = req.query;
+    // Extract parameters from query (GET) or body (POST)
+    const { location, niche } = req.method === 'GET' ? req.query : req.body;
     
     // Validate required parameters
     if (!location || !niche) {
@@ -41,7 +47,7 @@ export default async function handler(req, res) {
     console.error('API route error:', error);
     
     // Fallback to sample data if backend is unavailable
-    const { location, niche } = req.query;
+    const { location, niche } = req.method === 'GET' ? req.query : req.body;
     const fallbackData = {
       results: [
         {

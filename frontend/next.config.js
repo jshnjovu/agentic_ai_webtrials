@@ -19,7 +19,7 @@ const nextConfig = {
   },
   // Optimize for Vercel
   experimental: {
-    optimizeCss: true,
+    // optimizeCss: true, // Commented out to avoid potential issues
   },
 }
 
