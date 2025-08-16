@@ -16,6 +16,7 @@ a spec is provided.  The patch below relaxes this rule just for
 `__enter__` and `__exit__`, keeping the original behaviour for every
 other attribute.
 """
+
 import unittest.mock as _um
 
 # Preserve original helper
@@ -27,6 +28,7 @@ def _patched_is_magic(name):  # type: ignore
     if name in {"__enter__", "__exit__"}:
         return False
     return _original_is_magic(name)
+
 
 # Apply the patch once at import time
 _um._is_magic = _patched_is_magic

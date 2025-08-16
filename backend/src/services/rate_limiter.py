@@ -62,6 +62,12 @@ class RateLimiter(BaseService):
             "requests": [],
             "last_reset": time.time(),
         }
+        self._rate_limits["business_discovery"] = {
+            "limit": 60,  # 60 business discovery requests per minute
+            "window": 60,  # seconds
+            "requests": [],
+            "last_reset": time.time(),
+        }
         self._rate_limits["validation"] = {
             "limit": 100,  # 100 validation requests per minute
             "window": 60,  # seconds
@@ -88,7 +94,9 @@ class RateLimiter(BaseService):
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
-    def can_make_request(self, api: str, run_id: Optional[str] = None) -> Tuple[bool, str]:
+    def can_make_request(
+        self, api: str, run_id: Optional[str] = None
+    ) -> Tuple[bool, str]:
         if api not in self._rate_limits:
             return False, f"Unknown API: {api}"
         state = self._check_circuit_breaker(api)
@@ -124,7 +132,9 @@ class RateLimiter(BaseService):
             "current_usage": len(rl["requests"]),
             "limit": rl["limit"],
             "remaining": rl["limit"] - len(rl["requests"]),
-            "reset_time": datetime.fromtimestamp(rl["last_reset"] + rl["window"]).isoformat(),
+            "reset_time": datetime.fromtimestamp(
+                rl["last_reset"] + rl["window"]
+            ).isoformat(),
         }
 
     # ------------------------------------------------------------------
@@ -133,7 +143,11 @@ class RateLimiter(BaseService):
     def _check_circuit_breaker(self, api: str) -> str:
         cb = self._circuit_breakers[api]
         now = time.time()
-        if cb["state"] == "OPEN" and cb["last_failure"] and now - cb["last_failure"] >= cb["recovery_timeout"]:
+        if (
+            cb["state"] == "OPEN"
+            and cb["last_failure"]
+            and now - cb["last_failure"] >= cb["recovery_timeout"]
+        ):
             cb["state"] = "HALF_OPEN"
         return cb["state"]
 
@@ -159,9 +173,13 @@ class RateLimiter(BaseService):
 
     def reset_circuit_breaker(self, api: str, run_id: Optional[str] = None):
         if api in self._circuit_breakers:
-            self._circuit_breakers[api].update({
-                "state": "CLOSED",
-                "failures": 0,
-                "last_failure": None,
-            })
-            self.log_operation(f"Manually reset circuit breaker for {api}", run_id=run_id)
+            self._circuit_breakers[api].update(
+                {
+                    "state": "CLOSED",
+                    "failures": 0,
+                    "last_failure": None,
+                }
+            )
+            self.log_operation(
+                f"Manually reset circuit breaker for {api}", run_id=run_id
+            )

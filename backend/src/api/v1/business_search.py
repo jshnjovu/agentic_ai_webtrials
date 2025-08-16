@@ -6,12 +6,16 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 import uuid
 from src.schemas import (
-    BusinessSearchRequest, BusinessSearchResponse, BusinessSearchError,
-    LocationType
+    BusinessSearchRequest,
+    BusinessSearchResponse,
+    BusinessSearchError,
+    LocationType,
 )
 from src.schemas.yelp_fusion import (
-    YelpBusinessSearchRequest, YelpBusinessSearchResponse, YelpBusinessSearchError,
-    YelpLocationType
+    YelpBusinessSearchRequest,
+    YelpBusinessSearchResponse,
+    YelpBusinessSearchError,
+    YelpLocationType,
 )
 from src.services import GooglePlacesService, YelpFusionService
 
@@ -31,18 +35,18 @@ def get_yelp_fusion_service() -> YelpFusionService:
 @router.post("/google-places/search", response_model=BusinessSearchResponse)
 async def search_businesses(
     request: BusinessSearchRequest,
-    service: GooglePlacesService = Depends(get_google_places_service)
+    service: GooglePlacesService = Depends(get_google_places_service),
 ) -> BusinessSearchResponse:
     """
     Search for businesses using Google Places API.
-    
+
     Args:
         request: Business search request with query, location, and filters
         service: Google Places service instance
-        
+
     Returns:
         Business search response with results
-        
+
     Raises:
         HTTPException: If search fails or validation errors occur
     """
@@ -50,17 +54,16 @@ async def search_businesses(
         # Generate run_id if not provided
         if not request.run_id:
             request.run_id = str(uuid.uuid4())
-        
+
         # Validate request
         if not service.validate_input(request):
             raise HTTPException(
-                status_code=400,
-                detail="Invalid business search request"
+                status_code=400, detail="Invalid business search request"
             )
-        
+
         # Execute search
         result = service.search_businesses(request)
-        
+
         # Handle error responses
         if isinstance(result, BusinessSearchError):
             raise HTTPException(
@@ -70,36 +73,54 @@ async def search_businesses(
                     "error_code": result.error_code,
                     "context": result.context,
                     "query": result.query,
-                    "location": result.location
-                }
+                    "location": result.location,
+                },
             )
-        
+
         # Return successful response
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during business search: {str(e)}"
+            detail=f"Internal server error during business search: {str(e)}",
         )
 
 
 @router.get("/google-places/search", response_model=BusinessSearchResponse)
 async def search_businesses_get(
-    query: str = Query(..., description="Search query for businesses", min_length=1, max_length=200),
-    location: str = Query(..., description="Location to search in (city, address, coordinates, or zip code)"),
-    location_type: LocationType = Query(default=LocationType.CITY, description="Type of location input"),
-    category: Optional[str] = Query(None, description="Business category or type to filter by", max_length=100),
-    radius: Optional[int] = Query(default=5000, description="Search radius in meters (max 50000)", ge=100, le=50000),
-    max_results: Optional[int] = Query(default=10, description="Maximum number of results to return", ge=1, le=20),
-    run_id: Optional[str] = Query(None, description="Unique identifier for the processing run"),
-    service: GooglePlacesService = Depends(get_google_places_service)
+    query: str = Query(
+        ..., description="Search query for businesses", min_length=1, max_length=200
+    ),
+    location: str = Query(
+        ...,
+        description="Location to search in (city, address, coordinates, or zip code)",
+    ),
+    location_type: LocationType = Query(
+        default=LocationType.CITY, description="Type of location input"
+    ),
+    category: Optional[str] = Query(
+        None, description="Business category or type to filter by", max_length=100
+    ),
+    radius: Optional[int] = Query(
+        default=5000,
+        description="Search radius in meters (max 50000)",
+        ge=100,
+        le=50000,
+    ),
+    max_results: Optional[int] = Query(
+        default=10, description="Maximum number of results to return", ge=1, le=20
+    ),
+    run_id: Optional[str] = Query(
+        None, description="Unique identifier for the processing run"
+    ),
+    service: GooglePlacesService = Depends(get_google_places_service),
 ) -> BusinessSearchResponse:
     """
     Search for businesses using Google Places API (GET endpoint).
-    
+
     Args:
         query: Search query for businesses
         location: Location to search in
@@ -109,10 +130,10 @@ async def search_businesses_get(
         max_results: Maximum number of results
         run_id: Optional run identifier
         service: Google Places service instance
-        
+
     Returns:
         Business search response with results
-        
+
     Raises:
         HTTPException: If search fails or validation errors occur
     """
@@ -120,7 +141,7 @@ async def search_businesses_get(
         # Generate run_id if not provided
         if not run_id:
             run_id = str(uuid.uuid4())
-        
+
         # Create request object
         request = BusinessSearchRequest(
             query=query,
@@ -129,19 +150,18 @@ async def search_businesses_get(
             category=category,
             radius=radius,
             max_results=max_results,
-            run_id=run_id
+            run_id=run_id,
         )
-        
+
         # Validate request
         if not service.validate_input(request):
             raise HTTPException(
-                status_code=400,
-                detail="Invalid business search request"
+                status_code=400, detail="Invalid business search request"
             )
-        
+
         # Execute search
         result = service.search_businesses(request)
-        
+
         # Handle error responses
         if isinstance(result, BusinessSearchError):
             raise HTTPException(
@@ -151,39 +171,43 @@ async def search_businesses_get(
                     "error_code": result.error_code,
                     "context": result.context,
                     "query": result.query,
-                    "location": result.location
-                }
+                    "location": result.location,
+                },
             )
-        
+
         # Return successful response
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during business search: {str(e)}"
+            detail=f"Internal server error during business search: {str(e)}",
         )
 
 
 @router.get("/google-places/next-page")
 async def get_next_page(
-    next_page_token: str = Query(..., description="Token for next page from previous search"),
-    run_id: Optional[str] = Query(None, description="Unique identifier for the processing run"),
-    service: GooglePlacesService = Depends(get_google_places_service)
+    next_page_token: str = Query(
+        ..., description="Token for next page from previous search"
+    ),
+    run_id: Optional[str] = Query(
+        None, description="Unique identifier for the processing run"
+    ),
+    service: GooglePlacesService = Depends(get_google_places_service),
 ):
     """
     Get next page of business search results using pagination token.
-    
+
     Args:
         next_page_token: Token for next page from previous search
         run_id: Optional run identifier for the processing run
         service: Google Places service instance
-        
+
     Returns:
         Next page of business search results
-        
+
     Raises:
         HTTPException: If pagination fails or validation errors occur
     """
@@ -191,17 +215,14 @@ async def get_next_page(
         # Generate run_id if not provided
         if not run_id:
             run_id = str(uuid.uuid4())
-        
+
         # Validate token
         if not next_page_token or len(next_page_token.strip()) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Next page token is required"
-            )
-        
+            raise HTTPException(status_code=400, detail="Next page token is required")
+
         # Execute pagination request
         result = service.get_next_page(next_page_token, run_id)
-        
+
         # Handle error responses
         if not result.get("success", False):
             raise HTTPException(
@@ -209,43 +230,42 @@ async def get_next_page(
                 detail={
                     "error": result.get("error", "Unknown error"),
                     "error_code": result.get("error_code"),
-                    "context": "pagination_request"
-                }
+                    "context": "pagination_request",
+                },
             )
-        
+
         # Return successful response
         return {
             "success": True,
             "results": result.get("results", []),
             "next_page_token": result.get("next_page_token"),
             "api_status": result.get("api_status"),
-            "run_id": run_id
+            "run_id": run_id,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error during pagination: {str(e)}"
+            status_code=500, detail=f"Internal server error during pagination: {str(e)}"
         )
 
 
 @router.post("/yelp-fusion/search", response_model=YelpBusinessSearchResponse)
 async def search_yelp_businesses(
     request: YelpBusinessSearchRequest,
-    service: YelpFusionService = Depends(get_yelp_fusion_service)
+    service: YelpFusionService = Depends(get_yelp_fusion_service),
 ) -> YelpBusinessSearchResponse:
     """
     Search for businesses using Yelp Fusion API.
-    
+
     Args:
         request: Yelp business search request with term, location, and filters
         service: Yelp Fusion service instance
-        
+
     Returns:
         Yelp business search response with results
-        
+
     Raises:
         HTTPException: If search fails or validation errors occur
     """
@@ -253,17 +273,16 @@ async def search_yelp_businesses(
         # Generate run_id if not provided
         if not request.run_id:
             request.run_id = str(uuid.uuid4())
-        
+
         # Validate request
         if not service.validate_input(request):
             raise HTTPException(
-                status_code=400,
-                detail="Invalid Yelp business search request"
+                status_code=400, detail="Invalid Yelp business search request"
             )
-        
+
         # Execute search
         result = service.search_businesses(request)
-        
+
         # Handle error responses
         if isinstance(result, YelpBusinessSearchError):
             raise HTTPException(
@@ -273,40 +292,65 @@ async def search_yelp_businesses(
                     "error_code": result.error_code,
                     "context": result.context,
                     "term": result.term,
-                    "location": result.location
-                }
+                    "location": result.location,
+                },
             )
-        
+
         # Return successful response
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during Yelp business search: {str(e)}"
+            detail=f"Internal server error during Yelp business search: {str(e)}",
         )
 
 
 @router.get("/yelp-fusion/search", response_model=YelpBusinessSearchResponse)
 async def search_yelp_businesses_get(
-    term: str = Query(..., description="Search term for businesses", min_length=1, max_length=200),
-    location: str = Query(..., description="Location to search in (city, address, coordinates, or zip code)"),
-    location_type: YelpLocationType = Query(default=YelpLocationType.CITY, description="Type of location input"),
-    categories: Optional[str] = Query(None, description="Comma-separated list of business categories to filter by"),
-    radius: Optional[int] = Query(default=40000, description="Search radius in meters (max 40000)", ge=100, le=40000),
-    limit: Optional[int] = Query(default=20, description="Maximum number of results to return", ge=1, le=50),
+    term: str = Query(
+        ..., description="Search term for businesses", min_length=1, max_length=200
+    ),
+    location: str = Query(
+        ...,
+        description="Location to search in (city, address, coordinates, or zip code)",
+    ),
+    location_type: YelpLocationType = Query(
+        default=YelpLocationType.CITY, description="Type of location input"
+    ),
+    categories: Optional[str] = Query(
+        None, description="Comma-separated list of business categories to filter by"
+    ),
+    radius: Optional[int] = Query(
+        default=40000,
+        description="Search radius in meters (max 40000)",
+        ge=100,
+        le=40000,
+    ),
+    limit: Optional[int] = Query(
+        default=20, description="Maximum number of results to return", ge=1, le=50
+    ),
     offset: Optional[int] = Query(default=0, description="Offset for pagination", ge=0),
-    sort_by: Optional[str] = Query(default="best_match", description="Sort order: best_match, rating, review_count, distance"),
-    price: Optional[str] = Query(None, description="Price filter: 1, 2, 3, 4 (1=$, 4=$$$$)"),
-    open_now: Optional[bool] = Query(None, description="Filter for businesses currently open"),
-    run_id: Optional[str] = Query(None, description="Unique identifier for the processing run"),
-    service: YelpFusionService = Depends(get_yelp_fusion_service)
+    sort_by: Optional[str] = Query(
+        default="best_match",
+        description="Sort order: best_match, rating, review_count, distance",
+    ),
+    price: Optional[str] = Query(
+        None, description="Price filter: 1, 2, 3, 4 (1=$, 4=$$$$)"
+    ),
+    open_now: Optional[bool] = Query(
+        None, description="Filter for businesses currently open"
+    ),
+    run_id: Optional[str] = Query(
+        None, description="Unique identifier for the processing run"
+    ),
+    service: YelpFusionService = Depends(get_yelp_fusion_service),
 ) -> YelpBusinessSearchResponse:
     """
     Search for businesses using Yelp Fusion API (GET endpoint).
-    
+
     Args:
         term: Search term for businesses
         location: Location to search in
@@ -320,10 +364,10 @@ async def search_yelp_businesses_get(
         open_now: Open now filter
         run_id: Optional run identifier
         service: Yelp Fusion service instance
-        
+
     Returns:
         Yelp business search response with results
-        
+
     Raises:
         HTTPException: If search fails or validation errors occur
     """
@@ -331,12 +375,14 @@ async def search_yelp_businesses_get(
         # Generate run_id if not provided
         if not run_id:
             run_id = str(uuid.uuid4())
-        
+
         # Parse categories if provided
         category_list = None
         if categories:
-            category_list = [cat.strip() for cat in categories.split(",") if cat.strip()]
-        
+            category_list = [
+                cat.strip() for cat in categories.split(",") if cat.strip()
+            ]
+
         # Create request object
         request = YelpBusinessSearchRequest(
             term=term,
@@ -349,19 +395,18 @@ async def search_yelp_businesses_get(
             sort_by=sort_by,
             price=price,
             open_now=open_now,
-            run_id=run_id
+            run_id=run_id,
         )
-        
+
         # Validate request
         if not service.validate_input(request):
             raise HTTPException(
-                status_code=400,
-                detail="Invalid Yelp business search request"
+                status_code=400, detail="Invalid Yelp business search request"
             )
-        
+
         # Execute search
         result = service.search_businesses(request)
-        
+
         # Handle error responses
         if isinstance(result, YelpBusinessSearchError):
             raise HTTPException(
@@ -371,38 +416,38 @@ async def search_yelp_businesses_get(
                     "error_code": result.error_code,
                     "context": result.context,
                     "term": result.term,
-                    "location": result.location
-                }
+                    "location": result.location,
+                },
             )
-        
+
         # Return successful response
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during Yelp business search: {str(e)}"
+            detail=f"Internal server error during Yelp business search: {str(e)}",
         )
 
 
 @router.get("/yelp-fusion/search/health")
 async def yelp_health_check(
-    service: YelpFusionService = Depends(get_yelp_fusion_service)
+    service: YelpFusionService = Depends(get_yelp_fusion_service),
 ):
     """
     Health check endpoint for Yelp Fusion business search service.
-    
+
     Args:
         service: Yelp Fusion service instance
-        
+
     Returns:
         Health status of the service
     """
     try:
         # Simple health check - try to create service instance
-        if service and hasattr(service, 'search_businesses'):
+        if service and hasattr(service, "search_businesses"):
             return {
                 "status": "healthy",
                 "service": "YelpFusionService",
@@ -411,39 +456,39 @@ async def yelp_health_check(
                     "business_search",
                     "location_validation",
                     "data_extraction",
-                    "rate_limiting"
-                ]
+                    "rate_limiting",
+                ],
             }
         else:
             return {
                 "status": "unhealthy",
                 "service": "YelpFusionService",
-                "message": "Service not properly initialized"
+                "message": "Service not properly initialized",
             }
     except Exception as e:
         return {
             "status": "unhealthy",
             "service": "YelpFusionService",
-            "message": f"Service health check failed: {str(e)}"
+            "message": f"Service health check failed: {str(e)}",
         }
 
 
 @router.get("/google-places/search/health")
 async def health_check(
-    service: GooglePlacesService = Depends(get_google_places_service)
+    service: GooglePlacesService = Depends(get_google_places_service),
 ):
     """
     Health check endpoint for Google Places business search service.
-    
+
     Args:
         service: Google Places service instance
-        
+
     Returns:
         Health status of the service
     """
     try:
         # Simple health check - try to create service instance
-        if service and hasattr(service, 'search_businesses'):
+        if service and hasattr(service, "search_businesses"):
             return {
                 "status": "healthy",
                 "service": "GooglePlacesService",
@@ -452,18 +497,18 @@ async def health_check(
                     "business_search",
                     "location_validation",
                     "pagination",
-                    "rate_limiting"
-                ]
+                    "rate_limiting",
+                ],
             }
         else:
             return {
                 "status": "unhealthy",
                 "service": "GooglePlacesService",
-                "message": "Service not properly initialized"
+                "message": "Service not properly initialized",
             }
     except Exception as e:
         return {
             "status": "unhealthy",
             "service": "GooglePlacesService",
-            "message": f"Service health check failed: {str(e)}"
+            "message": f"Service health check failed: {str(e)}",
         }

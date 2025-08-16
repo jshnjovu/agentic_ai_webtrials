@@ -10,16 +10,16 @@ from .score_calculation import (
     calculate_score_grade,
     calculate_performance_trend,
     validate_score_thresholds,
-    get_score_insights
+    get_score_insights,
 )
 
 __all__ = [
-    'ScoreCategory',
-    'ScoreWeights',
-    'calculate_overall_score',
-    'normalize_score',
-    'calculate_score_grade',
-    'calculate_performance_trend',
-    'validate_score_thresholds',
-    'get_score_insights'
+    "ScoreCategory",
+    "ScoreWeights",
+    "calculate_overall_score",
+    "normalize_score",
+    "calculate_score_grade",
+    "calculate_performance_trend",
+    "validate_score_thresholds",
+    "get_score_insights",
 ]

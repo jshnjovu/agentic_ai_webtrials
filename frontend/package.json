@@ -5,11 +5,17 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "export": "next build && next export",
+    "vercel-build": "next build"
   },
   "dependencies": {
+    "antd": "^5.27.0",
     "next": "13.4.0",
     "react": "18.2.0",
     "react-dom": "18.2.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }

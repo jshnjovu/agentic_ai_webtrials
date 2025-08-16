@@ -29,6 +29,9 @@ coverage.xml
 .env.test.local
 .env.production.local
 backend/.env
+backend/env.local
+backend/env.production
+backend/env.example
 
 # IDE and editor files
 .vscode/
@@ -51,6 +54,19 @@ dist/
 build/
 *.egg-info/
 *.egg
+frontend/.next/
+frontend/out/
+
+# Virtual environments
+backend/.venv/
+backend/venv/
+backend/env/
+
+# Generated files
+backend/generated_sites/
+
+# Node dependencies
+frontend/node_modules/
 
 # Temporary files
 *.tmp
