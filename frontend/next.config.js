@@ -2,14 +2,25 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  experimental: {
-    appDir: false,
+  env: {
+    CUSTOM_KEY: 'my-value',
   },
-  // Ensure proper static export if needed
-  trailingSlash: false,
+  async headers() {
+    return [
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, POST, PUT, DELETE, OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization' },
+        ],
+      },
+    ]
+  },
   // Optimize for Vercel
-  poweredByHeader: false,
-  compress: true,
+  experimental: {
+    optimizeCss: true,
+  },
 }
 
 module.exports = nextConfig
