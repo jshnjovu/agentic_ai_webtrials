@@ -69,7 +69,7 @@ export default async function handler(req, res) {
     }
 
     // Get backend URL from environment variable
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://agentic-ai-webtrials-47bn3kr9a-healthy-entrepreneursnl.vercel.app';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://agentic-ai-webtrials.vercel.app';
     
     if (process.env.NODE_ENV === 'development') {
       console.log('Attempting to connect to backend:', backendUrl);

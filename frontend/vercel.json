@@ -9,7 +9,12 @@
   "routes": [
     {
       "src": "/api/v1/(.*)",
-      "dest": "/api/v1/$1"
+      "dest": "/api/v1/$1",
+      "headers": {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization"
+      }
     },
     {
       "src": "/(.*)",
@@ -20,5 +25,8 @@
     "pages/api/**/*.js": {
       "maxDuration": 30
     }
+  },
+  "env": {
+    "NODE_ENV": "production"
   }
 }
