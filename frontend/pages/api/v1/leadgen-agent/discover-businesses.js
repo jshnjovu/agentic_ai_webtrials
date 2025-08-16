@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     }
 
     // Get backend URL from environment variable
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://agentic-ai-webtrials-ngj1hqhkz-healthy-entrepreneursnl.vercel.app';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://agentic-ai-webtrials-47bn3kr9a-healthy-entrepreneursnl.vercel.app';
     
     // Proxy request to backend
     const backendResponse = await fetch(`${backendUrl}/discover_businesses?location=${encodeURIComponent(location)}&niche=${encodeURIComponent(niche)}`);
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
           address: `123 Main St, ${location}`,
           phone: "+1-555-0001",
           niche: niche,
-          source: "fallback"
+          source: 'fallback'
         }
       ],
       total: 1,
