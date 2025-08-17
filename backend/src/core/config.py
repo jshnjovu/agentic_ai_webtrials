@@ -54,7 +54,10 @@ load_environment_files()
 class APIConfig(BaseSettings):
     """Configuration for external API integrations."""
     
-    # Google Places API Configuration
+    # SerpAPI Configuration
+    SERPAPI_API_KEY: Optional[str] = None
+    
+    # Google Places API Configuration (deprecated - replaced by SerpAPI)
     GOOGLE_PLACES_API_KEY: Optional[str] = None
     
     # Yelp Fusion API Configuration  
@@ -64,6 +67,7 @@ class APIConfig(BaseSettings):
     LIGHTHOUSE_API_KEY: Optional[str] = None
     
     # Rate Limiting Configuration
+    SERPAPI_RATE_LIMIT_PER_MINUTE: int = 100
     GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE: int = 100
     YELP_FUSION_RATE_LIMIT_PER_DAY: int = 5000
     LIGHTHOUSE_RATE_LIMIT_PER_DAY: int = 25000
@@ -96,6 +100,18 @@ class APIConfig(BaseSettings):
                 return v
         return v
     
+    @field_validator('SERPAPI_API_KEY')
+    @classmethod
+    def validate_serpapi_key(cls, v):
+        if v is not None and isinstance(v, str):
+            v = v.strip()
+            if len(v) == 0:
+                return None
+            if v in ['your_serpapi_api_key_here', 'test_key', 'test']:
+                logger.warning("Using placeholder SerpAPI key")
+                return v
+        return v
+    
     @field_validator('YELP_FUSION_API_KEY')
     @classmethod
     def validate_yelp_fusion_key(cls, v):
@@ -125,6 +141,13 @@ class APIConfig(BaseSettings):
     def validate_google_rate_limit(cls, v):
         if v <= 0:
             raise ValueError('GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE must be positive')
+        return v
+    
+    @field_validator('SERPAPI_RATE_LIMIT_PER_MINUTE')
+    @classmethod
+    def validate_serpapi_rate_limit(cls, v):
+        if v <= 0:
+            raise ValueError('SERPAPI_RATE_LIMIT_PER_MINUTE must be positive')
         return v
     
     @field_validator('YELP_FUSION_RATE_LIMIT_PER_DAY')
@@ -177,6 +200,9 @@ class APIConfig(BaseSettings):
         """Get list of APIs with valid configuration."""
         available = []
         
+        if self.is_api_key_valid('SERPAPI_API_KEY'):
+            available.append('serpapi')
+            
         if self.is_api_key_valid('GOOGLE_PLACES_API_KEY'):
             available.append('google_places')
             
@@ -276,11 +302,13 @@ def get_configuration_summary() -> dict:
             "debug": settings.DEBUG,
             "available_apis": available_apis,
             "api_configuration": {
+                "serpapi_configured": api_config.is_api_key_valid('SERPAPI_API_KEY'),
                 "google_places_configured": api_config.is_api_key_valid('GOOGLE_PLACES_API_KEY'),
                 "yelp_fusion_configured": api_config.is_api_key_valid('YELP_FUSION_API_KEY'),
                 "lighthouse_configured": api_config.is_api_key_valid('LIGHTHOUSE_API_KEY'),
             },
             "rate_limits": {
+                "serpapi_per_minute": api_config.SERPAPI_RATE_LIMIT_PER_MINUTE,
                 "google_places_per_minute": api_config.GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE,
                 "yelp_fusion_per_day": api_config.YELP_FUSION_RATE_LIMIT_PER_DAY,
                 "lighthouse_per_day": api_config.LIGHTHOUSE_RATE_LIMIT_PER_DAY,

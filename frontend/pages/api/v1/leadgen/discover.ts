@@ -34,7 +34,7 @@ export default async function handler(
     console.log('🔍 Backend business search request:', backendRequest);
 
     // Call backend business search API
-    const response = await fetch(`${BACKEND_URL}/api/v1/business-search/google-places/search`, {
+    const response = await fetch(`${BACKEND_URL}/api/v1/business-search/serpapi/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

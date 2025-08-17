@@ -32,6 +32,12 @@ class RateLimiter(BaseService):
     # ---------------------------------------------------------------------
     def _setup_rate_limits(self):
         """Initialise per-API rate-limit windows and circuit-breakers."""
+        self._rate_limits["serpapi"] = {
+            "limit": self.api_config.SERPAPI_RATE_LIMIT_PER_MINUTE,
+            "window": 60,  # seconds
+            "requests": [],
+            "last_reset": time.time(),
+        }
         self._rate_limits["google_places"] = {
             "limit": self.api_config.GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE,
             "window": 60,  # seconds
