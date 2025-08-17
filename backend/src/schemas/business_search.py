@@ -2,7 +2,7 @@
 Business search schemas for Google Places API integration.
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
@@ -26,14 +26,14 @@ class BusinessSearchRequest(BaseModel):
     max_results: Optional[int] = Field(default=10, description="Maximum number of results to return", ge=1, le=20)
     run_id: Optional[str] = Field(None, description="Unique identifier for the processing run")
     
-    @validator('radius')
+    @field_validator('radius')
     @classmethod
     def validate_radius(cls, v):
         if v is not None and (v < 100 or v > 50000):
             raise ValueError('Radius must be between 100 and 50000 meters')
         return v
     
-    @validator('max_results')
+    @field_validator('max_results')
     @classmethod
     def validate_max_results(cls, v):
         if v is not None and (v < 1 or v > 20):

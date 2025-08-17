@@ -2,7 +2,7 @@
 Business matching, merging, and duplicate detection schemas.
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any, Tuple
 from enum import Enum
 from decimal import Decimal
@@ -53,7 +53,7 @@ class BusinessSourceData(BaseModel):
     raw_data: Optional[Dict[str, Any]] = Field(None, description="Raw data from source")
     last_updated: Optional[str] = Field(None, description="Last update timestamp")
     
-    @validator('rating')
+    @field_validator('rating')
     @classmethod
     def validate_rating(cls, v):
         if v is not None and (v < 0.0 or v > 5.0):
@@ -70,7 +70,7 @@ class BusinessMatchScore(BaseModel):
     combined_score: float = Field(..., description="Combined weighted score (0.0 to 1.0)", ge=0.0, le=1.0)
     confidence_level: ConfidenceLevel = Field(..., description="Overall confidence level")
     
-    @validator('name_similarity', 'address_similarity', 'coordinate_proximity', 'combined_score')
+    @field_validator('name_similarity', 'address_similarity', 'coordinate_proximity', 'combined_score')
     @classmethod
     def validate_score(cls, v):
         if v < 0.0 or v > 1.0:
@@ -97,14 +97,14 @@ class BusinessMatchingRequest(BaseModel):
     similarity_threshold: float = Field(default=0.7, description="Threshold for considering businesses similar", ge=0.0, le=1.0)
     run_id: Optional[str] = Field(None, description="Unique identifier for the processing run")
     
-    @validator('name_weight', 'address_weight', 'coordinate_weight')
+    @field_validator('name_weight', 'address_weight', 'coordinate_weight')
     @classmethod
     def validate_weights(cls, v):
         if v < 0.0 or v > 1.0:
             raise ValueError('Weight must be between 0.0 and 1.0')
         return v
     
-    @validator('similarity_threshold')
+    @field_validator('similarity_threshold')
     @classmethod
     def validate_threshold(cls, v):
         if v < 0.0 or v > 1.0:

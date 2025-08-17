@@ -14,6 +14,11 @@ from src.services.score_validation_service import (
     ScoreData
 )
 from src.schemas.website_scoring import (
+    ScoreValidationResult,
+    IssuePriority,
+    IssuePriorityDetails
+)
+from src.schemas.website_scoring import (
     WebsiteScore,
     HeuristicScore,
     ScoreValidationResult,
@@ -116,7 +121,7 @@ class TestScoreValidationService:
         assert result.confidence_level == ConfidenceLevel.LOW
         assert result.correlation_coefficient == 0.0
         assert result.discrepancy_count == 0
-        assert result.final_score.weighted_score == 0.0
+        assert result.final_weighted_score == 0.0
     
     def test_pearson_correlation_perfect_correlation(self, service):
         """Test Pearson correlation calculation with perfectly correlated data."""
@@ -257,12 +262,12 @@ class TestScoreValidationService:
         priorities = service._create_issue_priorities(discrepancies, consistency_result)
         
         assert len(priorities) >= 2
-        assert all(isinstance(priority, IssuePriority) for priority in priorities)
+        assert all(isinstance(priority, IssuePriorityDetails) for priority in priorities)
         
         # Check that high severity gets high priority
-        high_priority = next((p for p in priorities if p.category == "performance"), None)
+        high_priority = next((p for p in priorities if p.category == IssueCategory.PERFORMANCE), None)
         if high_priority:
-            assert high_priority.priority_level == "high"
+            assert high_priority.priority == IssuePriority.HIGH
             assert high_priority.business_impact_score > 0.5
     
     def test_business_impact_calculation(self, service):

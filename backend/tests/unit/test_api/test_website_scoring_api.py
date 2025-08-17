@@ -4,7 +4,7 @@ Tests both Lighthouse and Heuristic evaluation endpoints.
 """
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
 
@@ -39,12 +39,14 @@ class TestWebsiteScoringAPI:
     
     def test_lighthouse_audit_success(self):
         """Test successful Lighthouse audit endpoint."""
-        with patch('src.api.v1.website_scoring.get_lighthouse_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = True
-            mock_service.run_lighthouse_audit.return_value = {
+        with patch('src.services.lighthouse_service.LighthouseService.run_lighthouse_audit') as mock_run_audit, \
+             patch('src.services.lighthouse_service.LighthouseService.validate_input') as mock_validate:
+            
+            # Set up the mocks
+            mock_validate.return_value = True
+            mock_run_audit.return_value = {
                 "success": True,
-                "website_url": self.website_url,
+                "website_url": self.website_url + "/",  # Match the actual response format
                 "business_id": self.business_id,
                 "run_id": self.run_id,
                 "audit_timestamp": 1234567890.0,
@@ -66,7 +68,6 @@ class TestWebsiteScoringAPI:
                 "confidence": "high",
                 "raw_data": {"test": "data"}
             }
-            mock_get_service.return_value = mock_service
             
             request_data = {
                 "website_url": self.website_url,
@@ -83,7 +84,7 @@ class TestWebsiteScoringAPI:
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
-            assert data["website_url"] == self.website_url
+            assert data["website_url"] == self.website_url + "/"  # Match the actual response format
             assert data["business_id"] == self.business_id
             assert data["run_id"] == self.run_id
             assert data["scores"]["performance"] == 85.0
@@ -95,10 +96,9 @@ class TestWebsiteScoringAPI:
     
     def test_lighthouse_audit_validation_error(self):
         """Test Lighthouse audit endpoint with validation error."""
-        with patch('src.api.v1.website_scoring.get_lighthouse_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = False
-            mock_get_service.return_value = mock_service
+        with patch('src.services.lighthouse_service.LighthouseService.validate_input') as mock_validate:
+            # Set up the mock
+            mock_validate.return_value = False
             
             request_data = {
                 "website_url": self.website_url,
@@ -118,10 +118,12 @@ class TestWebsiteScoringAPI:
     
     def test_lighthouse_audit_timeout_error(self):
         """Test Lighthouse audit endpoint with timeout error."""
-        with patch('src.api.v1.website_scoring.get_lighthouse_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = True
-            mock_service.run_lighthouse_audit.return_value = {
+        with patch('src.services.lighthouse_service.LighthouseService.run_lighthouse_audit') as mock_run_audit, \
+             patch('src.services.lighthouse_service.LighthouseService.validate_input') as mock_validate:
+            
+            # Set up the mocks
+            mock_validate.return_value = True
+            mock_run_audit.return_value = {
                 "success": False,
                 "error": "Audit timed out",
                 "error_code": "TIMEOUT",
@@ -130,7 +132,6 @@ class TestWebsiteScoringAPI:
                 "business_id": self.business_id,
                 "run_id": self.run_id
             }
-            mock_get_service.return_value = mock_service
             
             request_data = {
                 "website_url": self.website_url,
@@ -151,10 +152,12 @@ class TestWebsiteScoringAPI:
     
     def test_lighthouse_audit_rate_limit_error(self):
         """Test Lighthouse audit endpoint with rate limit error."""
-        with patch('src.api.v1.website_scoring.get_lighthouse_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = True
-            mock_service.run_lighthouse_audit.return_value = {
+        with patch('src.services.lighthouse_service.LighthouseService.run_lighthouse_audit') as mock_run_audit, \
+             patch('src.services.lighthouse_service.LighthouseService.validate_input') as mock_validate:
+            
+            # Set up the mocks
+            mock_validate.return_value = True
+            mock_run_audit.return_value = {
                 "success": False,
                 "error": "Rate limit exceeded",
                 "error_code": "RATE_LIMIT_EXCEEDED",
@@ -163,7 +166,6 @@ class TestWebsiteScoringAPI:
                 "business_id": self.business_id,
                 "run_id": self.run_id
             }
-            mock_get_service.return_value = mock_service
             
             request_data = {
                 "website_url": self.website_url,
@@ -184,12 +186,14 @@ class TestWebsiteScoringAPI:
     
     def test_heuristic_evaluation_success(self):
         """Test successful heuristic evaluation endpoint."""
-        with patch('src.api.v1.website_scoring.get_heuristic_evaluation_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = True
-            mock_service.run_heuristic_evaluation.return_value = {
+        with patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.run_heuristic_evaluation') as mock_run_eval, \
+             patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.validate_input') as mock_validate:
+            
+            # Set up the mocks
+            mock_validate.return_value = True
+            mock_run_eval.return_value = {
                 "success": True,
-                "website_url": self.website_url,
+                "website_url": self.website_url + "/",  # Match the actual response format
                 "business_id": self.business_id,
                 "run_id": self.run_id,
                 "evaluation_timestamp": 1234567890.0,
@@ -253,7 +257,6 @@ class TestWebsiteScoringAPI:
                 "confidence": "high",
                 "raw_data": {"html_length": 5000, "evaluation_time": 2.5}
             }
-            mock_get_service.return_value = mock_service
             
             request_data = {
                 "website_url": self.website_url,
@@ -269,7 +272,7 @@ class TestWebsiteScoringAPI:
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
-            assert data["website_url"] == self.website_url
+            assert data["website_url"] == self.website_url + "/"  # Match the actual response format
             assert data["business_id"] == self.business_id
             assert data["run_id"] == self.run_id
             assert data["scores"]["trust_score"] == 85.0
@@ -284,13 +287,12 @@ class TestWebsiteScoringAPI:
             assert data["mobile_usability"]["has_viewport_meta"] is True
             assert data["content_quality"]["has_proper_headings"] is True
             assert data["social_proof"]["has_social_media_links"] is True
-    
+
     def test_heuristic_evaluation_validation_error(self):
         """Test heuristic evaluation endpoint with validation error."""
-        with patch('src.api.v1.website_scoring.get_heuristic_evaluation_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = False
-            mock_get_service.return_value = mock_service
+        with patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.validate_input') as mock_validate:
+            # Set up the mock
+            mock_validate.return_value = False
             
             request_data = {
                 "website_url": self.website_url,
@@ -309,10 +311,12 @@ class TestWebsiteScoringAPI:
     
     def test_heuristic_evaluation_timeout_error(self):
         """Test heuristic evaluation endpoint with timeout error."""
-        with patch('src.api.v1.website_scoring.get_heuristic_evaluation_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = True
-            mock_service.run_heuristic_evaluation.return_value = {
+        with patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.run_heuristic_evaluation') as mock_run_eval, \
+             patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.validate_input') as mock_validate:
+            
+            # Set up the mocks
+            mock_validate.return_value = True
+            mock_run_eval.return_value = {
                 "success": False,
                 "error": "Evaluation timed out",
                 "error_code": "TIMEOUT",
@@ -321,7 +325,6 @@ class TestWebsiteScoringAPI:
                 "business_id": self.business_id,
                 "run_id": self.run_id
             }
-            mock_get_service.return_value = mock_service
             
             request_data = {
                 "website_url": self.website_url,
@@ -341,10 +344,12 @@ class TestWebsiteScoringAPI:
     
     def test_heuristic_evaluation_rate_limit_error(self):
         """Test heuristic evaluation endpoint with rate limit error."""
-        with patch('src.api.v1.website_scoring.get_heuristic_evaluation_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = True
-            mock_service.run_heuristic_evaluation.return_value = {
+        with patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.run_heuristic_evaluation') as mock_run_eval, \
+             patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.validate_input') as mock_validate:
+            
+            # Set up the mocks
+            mock_validate.return_value = True
+            mock_run_eval.return_value = {
                 "success": False,
                 "error": "Rate limit exceeded",
                 "error_code": "RATE_LIMIT_EXCEEDED",
@@ -353,7 +358,6 @@ class TestWebsiteScoringAPI:
                 "business_id": self.business_id,
                 "run_id": self.run_id
             }
-            mock_get_service.return_value = mock_service
             
             request_data = {
                 "website_url": self.website_url,
@@ -373,10 +377,12 @@ class TestWebsiteScoringAPI:
     
     def test_heuristic_evaluation_general_error(self):
         """Test heuristic evaluation endpoint with general error."""
-        with patch('src.api.v1.website_scoring.get_heuristic_evaluation_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = True
-            mock_service.run_heuristic_evaluation.return_value = {
+        with patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.run_heuristic_evaluation') as mock_run_eval, \
+             patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.validate_input') as mock_validate:
+            
+            # Set up the mocks
+            mock_validate.return_value = True
+            mock_run_eval.return_value = {
                 "success": False,
                 "error": "General evaluation error",
                 "error_code": "EVALUATION_FAILED",
@@ -385,7 +391,6 @@ class TestWebsiteScoringAPI:
                 "business_id": self.business_id,
                 "run_id": self.run_id
             }
-            mock_get_service.return_value = mock_service
             
             request_data = {
                 "website_url": self.website_url,
@@ -489,10 +494,12 @@ class TestWebsiteScoringAPI:
     
     def test_auto_generated_run_id(self):
         """Test that run_id is auto-generated when not provided."""
-        with patch('src.api.v1.website_scoring.get_heuristic_evaluation_service') as mock_get_service:
-            mock_service = Mock()
-            mock_service.validate_input.return_value = True
-            mock_service.run_heuristic_evaluation.return_value = {
+        with patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.run_heuristic_evaluation') as mock_run_eval, \
+             patch('src.services.heuristic_evaluation_service.HeuristicEvaluationService.validate_input') as mock_validate:
+            
+            # Set up the mocks
+            mock_validate.return_value = True
+            mock_run_eval.return_value = {
                 "success": True,
                 "website_url": self.website_url,
                 "business_id": self.business_id,
@@ -515,7 +522,6 @@ class TestWebsiteScoringAPI:
                 "confidence": "high",
                 "raw_data": {}
             }
-            mock_get_service.return_value = mock_service
             
             request_data = {
                 "website_url": self.website_url,
@@ -530,5 +536,7 @@ class TestWebsiteScoringAPI:
             
             assert response.status_code == 200
             data = response.json()
-            assert data["run_id"] is not None  # Should be auto-generated
-            assert len(data["run_id"]) > 0
+            assert data["success"] is True
+            assert "run_id" in data
+            assert data["run_id"] is not None
+            assert data["run_id"] != ""

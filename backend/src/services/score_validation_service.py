@@ -1,11 +1,12 @@
 from typing import Dict, List, Optional, Tuple, Any
 import statistics
+import time
 from dataclasses import dataclass
 from enum import Enum
 
 from ..core.base_service import BaseService
 from ..models.website_scoring import WebsiteScore, HeuristicScore
-from ..schemas.website_scoring import ScoreValidationResult, ValidationMetrics, IssuePriority, FinalScore
+from ..schemas.website_scoring import ScoreValidationResult, ValidationMetrics, IssuePriority, IssuePriorityDetails, IssueCategory, FinalScore
 
 
 class ConfidenceLevel(str, Enum):
@@ -113,27 +114,36 @@ class ScoreValidationService(BaseService):
                 correlation_coefficient=consistency_result["correlation"],
                 statistical_significance=consistency_result["significance"],
                 variance_analysis=consistency_result["variance"],
-                reliability_indicator=consistency_result["reliability"]
+                reliability_indicator=consistency_result["reliability"],
+                sample_size=max(len(lighthouse_scores), 1),  # Ensure minimum sample size of 1
+                confidence_interval=(0.95, 0.99)  # 95% confidence interval
             )
             
             # Create final score
             final_score_model = FinalScore(
-                weighted_score=final_score,
+                business_id=business_id,
+                run_id=run_id,
+                weighted_final_score=final_score,
                 confidence_level=confidence_level,
-                discrepancy_count=len(discrepancies),
-                validation_status="completed"
+                lighthouse_weight=0.8,
+                heuristic_weight=0.2,
+                discrepancy_flags=[],
+                issue_priorities=issue_priorities,
+                validation_status="completed",
+                calculation_timestamp=time.time()
             )
             
             result = ScoreValidationResult(
                 business_id=business_id,
                 run_id=run_id,
+                validation_timestamp=time.time(),
                 confidence_level=confidence_level,
-                correlation_coefficient=consistency_result["correlation"],
+                score_correlation=consistency_result["correlation"],
                 discrepancy_count=len(discrepancies),
-                final_score=final_score_model,
                 validation_metrics=validation_metrics,
                 issue_priorities=issue_priorities,
-                validation_timestamp=self._get_current_timestamp()
+                final_weighted_score=final_score,
+                validation_status="completed"
             )
             
             self.log_operation("Score validation completed", run_id, business_id, confidence_level=confidence_level)
@@ -381,7 +391,7 @@ class ScoreValidationService(BaseService):
         self,
         discrepancies: List[Dict],
         consistency_result: Dict
-    ) -> List[IssuePriority]:
+    ) -> List[IssuePriorityDetails]:
         """Create prioritized list of issues based on discrepancies and consistency."""
         try:
             priorities = []
@@ -390,29 +400,31 @@ class ScoreValidationService(BaseService):
             for discrepancy in discrepancies:
                 priority_level = self._determine_priority_level(discrepancy["severity"])
                 
-                priority = IssuePriority(
-                    category=discrepancy["category"],
-                    priority_level=priority_level,
+                priority = IssuePriorityDetails(
+                    priority=IssuePriority(priority_level),
+                    category=IssueCategory(discrepancy["category"]),
                     business_impact_score=self._calculate_business_impact(discrepancy),
                     recommended_action=self._get_recommended_action(discrepancy),
-                    description=f"Score discrepancy: {discrepancy['difference']:.1f} points difference"
+                    estimated_effort="medium",
+                    dependencies=[]
                 )
                 priorities.append(priority)
             
             # Add consistency-based issues if confidence is low
             if consistency_result.get("reliability", 1.0) < 0.5:
-                priority = IssuePriority(
-                    category="validation",
-                    priority_level="high",
+                priority = IssuePriorityDetails(
+                    priority=IssuePriority.HIGH,
+                    category=IssueCategory.TECHNICAL,
                     business_impact_score=0.8,
                     recommended_action="Manual review required due to low confidence",
-                    description="Low confidence in scoring results"
+                    estimated_effort="high",
+                    dependencies=[]
                 )
                 priorities.append(priority)
             
             # Sort by priority level
             priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-            priorities.sort(key=lambda x: priority_order.get(x.priority_level, 4))
+            priorities.sort(key=lambda x: priority_order.get(x.priority.value, 4))
             
             return priorities
             

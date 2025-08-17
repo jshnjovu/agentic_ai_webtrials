@@ -2,7 +2,7 @@
 Yelp Fusion API schemas for business search integration.
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
@@ -30,21 +30,21 @@ class YelpBusinessSearchRequest(BaseModel):
     open_now: Optional[bool] = Field(None, description="Filter for businesses currently open")
     run_id: Optional[str] = Field(None, description="Unique identifier for the processing run")
     
-    @validator('radius')
+    @field_validator('radius')
     @classmethod
     def validate_radius(cls, v):
         if v is not None and (v < 100 or v > 40000):
             raise ValueError('Radius must be between 100 and 40000 meters')
         return v
     
-    @validator('limit')
+    @field_validator('limit')
     @classmethod
     def validate_limit(cls, v):
         if v is not None and (v < 1 or v > 50):
             raise ValueError('Limit must be between 1 and 50')
         return v
     
-    @validator('offset')
+    @field_validator('offset')
     @classmethod
     def validate_offset(cls, v):
         if v is not None and v < 0:

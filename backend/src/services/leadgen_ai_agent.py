@@ -1,419 +1,532 @@
 """
 LeadGenBuilder AI Agent
-Handles AI-powered message processing and tool calling for the lead generation system
+Handles the conversational AI logic and workflow progression
 """
 
 import logging
-import json
+import asyncio
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+
+from src.services.leadgen_tool_executor import LeadGenToolExecutor
+from src.services.leadgen_context_manager import LeadGenContextManager, WorkflowStep, ConfirmationType
 
 logger = logging.getLogger(__name__)
 
 
 class LeadGenAIAgent:
     """
-    AI agent that processes user messages and determines appropriate tool calls
+    AI Agent that manages the lead generation workflow
     
     This agent handles:
-    - Natural language understanding of user requests
-    - Tool selection and parameter extraction
-    - Context management across conversations
-    - Response generation
+    - User message processing
+    - Workflow state management
+    - Tool execution coordination
+    - Progress tracking and updates
     """
     
     def __init__(self):
-        self.conversation_contexts = {}
-        self.tool_definitions = {
-            "discover_businesses": {
-                "description": "Search for businesses in a specific location and niche",
-                "parameters": ["location", "niche", "max_businesses"]
-            },
-            "score_websites": {
-                "description": "Evaluate website quality using Lighthouse and heuristic analysis",
-                "parameters": ["businesses", "scoring_method"]
-            },
-            "generate_demo_sites": {
-                "description": "Create demo websites for businesses",
-                "parameters": ["businesses", "template_style"]
-            },
-            "export_data": {
-                "description": "Export business and scoring data",
-                "parameters": ["businesses", "format"]
-            },
-            "generate_outreach": {
-                "description": "Generate personalized outreach messages",
-                "parameters": ["businesses", "outreach_type"]
-            },
-            "confirm_parameters": {
-                "description": "Confirm location and niche parameters with user",
-                "parameters": ["location", "niche"]
-            }
-        }
-    
+        self.tool_executor = LeadGenToolExecutor()
+        self.context_manager = LeadGenContextManager()
+        
     async def process_message(
         self, 
         user_message: str, 
-        session_id: str, 
+        session_id: str,
         message_history: List[Dict[str, str]]
     ) -> Dict[str, Any]:
         """
-        Process a user message and determine appropriate response and tool calls
+        Process a user message and determine the appropriate response
         
         Args:
             user_message: The user's input message
-            session_id: Unique session identifier
+            session_id: Session identifier
             message_history: Previous conversation messages
             
         Returns:
-            Dictionary containing response content and tool calls
+            Dict containing the agent's response and any required actions
         """
-        
         try:
-            logger.info(f"🤖 AI Agent processing message for session {session_id}")
-            logger.info(f"📝 User message: {user_message}")
+            logger.info(f"🤖 AI Agent processing message: {user_message[:100]}...")
             
-            # Update conversation context
-            self._update_context(session_id, user_message, message_history)
+            # Get current workflow state
+            workflow_state = self.context_manager.get_or_create_workflow_state(session_id)
             
-            # Analyze user intent
-            intent = self._analyze_intent(user_message)
-            logger.info(f"🎯 Detected intent: {intent}")
+            # Check if there's a pending confirmation
+            if workflow_state.pending_confirmation:
+                return await self._handle_pending_confirmation(user_message, session_id, workflow_state)
             
-            # Generate response and tool calls based on intent
-            if intent["type"] == "business_discovery":
-                return await self._handle_business_discovery(intent, session_id)
-            elif intent["type"] == "website_scoring":
-                return await self._handle_website_scoring(intent, session_id)
-            elif intent["type"] == "demo_generation":
-                return await self._handle_demo_generation(intent, session_id)
-            elif intent["type"] == "data_export":
-                return await self._handle_data_export(intent, session_id)
-            elif intent["type"] == "outreach_generation":
-                return await self._handle_outreach_generation(intent, session_id)
-            elif intent["type"] == "parameter_confirmation":
-                return await self._handle_parameter_confirmation(intent, session_id)
-            elif intent["type"] == "general_help":
-                return await self._handle_general_help(intent, session_id)
+            # Determine the current workflow step and appropriate action
+            if workflow_state.current_step == WorkflowStep.INITIALIZED:
+                return await self._handle_initial_message(user_message, session_id, workflow_state)
+            
+            elif workflow_state.current_step == WorkflowStep.PARAMETERS_CONFIRMED:
+                return await self._handle_business_discovery(user_message, session_id, workflow_state)
+            
+            elif workflow_state.current_step == WorkflowStep.BUSINESSES_DISCOVERED:
+                return await self._handle_website_scoring(user_message, session_id, workflow_state)
+            
+            elif workflow_state.current_step == WorkflowStep.WEBSITES_SCORED:
+                return await self._handle_demo_generation(user_message, session_id, workflow_state)
+            
+            elif workflow_state.current_step == WorkflowStep.DEMOS_GENERATED:
+                return await self._handle_data_export(user_message, session_id, workflow_state)
+            
+            elif workflow_state.current_step == WorkflowStep.DATA_EXPORTED:
+                return await self._handle_outreach_generation(user_message, session_id, workflow_state)
+            
             else:
-                return await self._handle_unknown_intent(intent, session_id)
+                return await self._handle_completed_workflow(user_message, session_id, workflow_state)
                 
         except Exception as e:
-            logger.error(f"❌ AI Agent processing failed: {e}")
+            logger.error(f"❌ AI Agent error: {str(e)}")
             return {
-                "content": f"I apologize, but I encountered an error processing your message: {str(e)}. Please try again.",
-                "tool_calls": [],
-                "requires_confirmation": False
+                "success": False,
+                "content": f"I encountered an error: {str(e)}. Please try again.",
+                "requires_confirmation": False,
+                "workflow_progress": None
             }
     
-    def _update_context(self, session_id: str, user_message: str, message_history: List[Dict[str, str]]):
-        """Update conversation context for the session"""
+    async def _handle_initial_message(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Handle the initial user message to extract location and niche"""
         
-        if session_id not in self.conversation_contexts:
-            self.conversation_contexts[session_id] = {
-                "last_updated": datetime.now(),
-                "message_count": 0,
-                "extracted_parameters": {},
-                "conversation_flow": []
+        # Extract location and niche from user message
+        location, niche = self._extract_location_and_niche(user_message)
+        
+        if not location or not niche:
+            return {
+                "success": True,
+                "content": "I need to know both the location and business type to help you. Please provide both, for example: 'Find restaurants in Austin, TX' or 'I want to find gyms in London, UK'",
+                "requires_confirmation": False,
+                "workflow_progress": None
             }
         
-        context = self.conversation_contexts[session_id]
-        context["last_updated"] = datetime.now()
-        context["message_count"] += 1
-        
-        # Extract and store any parameters mentioned in the message
-        extracted = self._extract_parameters(user_message)
-        context["extracted_parameters"].update(extracted)
-        
-        # Track conversation flow
-        context["conversation_flow"].append({
-            "timestamp": datetime.now(),
-            "message": user_message,
-            "intent": "user_input"
+        # Update workflow state with extracted parameters
+        self.context_manager.update_workflow_state(session_id, {
+            "location": location,
+            "niche": niche
         })
-    
-    def _analyze_intent(self, user_message: str) -> Dict[str, Any]:
-        """Analyze user message to determine intent and extract parameters"""
         
-        message_lower = user_message.lower().strip()
+        # Request confirmation
+        confirmation_message = f"I'll help you find {niche} businesses in {location}. Should I proceed with this search?"
         
-        # Check for business discovery intent
-        if any(word in message_lower for word in ["find", "search", "discover", "look for", "businesses", "companies"]):
-            return {
-                "type": "business_discovery",
-                "confidence": 0.9,
-                "parameters": self._extract_parameters(user_message)
-            }
-        
-        # Check for website scoring intent
-        elif any(word in message_lower for word in ["score", "evaluate", "analyze", "website", "quality", "performance"]):
-            return {
-                "type": "website_scoring",
-                "confidence": 0.8,
-                "parameters": self._extract_parameters(user_message)
-            }
-        
-        # Check for demo generation intent
-        elif any(word in message_lower for word in ["demo", "create", "build", "website", "template"]):
-            return {
-                "type": "demo_generation",
-                "confidence": 0.8,
-                "parameters": self._extract_parameters(user_message)
-            }
-        
-        # Check for data export intent
-        elif any(word in message_lower for word in ["export", "download", "save", "data", "report"]):
-            return {
-                "type": "data_export",
-                "confidence": 0.7,
-                "parameters": self._extract_parameters(user_message)
-            }
-        
-        # Check for outreach generation intent
-        elif any(word in message_lower for word in ["outreach", "email", "message", "contact", "follow up"]):
-            return {
-                "type": "outreach_generation",
-                "confidence": 0.7,
-                "parameters": self._extract_parameters(user_message)
-            }
-        
-        # Check for parameter confirmation
-        elif any(word in message_lower for word in ["yes", "no", "confirm", "correct", "right", "wrong"]):
-            return {
+        self.context_manager.set_pending_confirmation(
+            session_id,
+            ConfirmationType.PARAMETERS,
+            confirmation_message,
+            {
                 "type": "parameter_confirmation",
-                "confidence": 0.6,
-                "parameters": self._extract_parameters(user_message)
+                "location": location,
+                "niche": niche
             }
+        )
         
-        # Check for general help
-        elif any(word in message_lower for word in ["help", "what can you do", "how does this work", "explain"]):
-            return {
-                "type": "general_help",
-                "confidence": 0.9,
-                "parameters": {}
-            }
+        return {
+            "success": True,
+            "content": confirmation_message,
+            "requires_confirmation": True,
+            "pending_action": {
+                "type": "confirm_parameters",
+                "location": location,
+                "niche": niche
+            },
+            "workflow_progress": workflow_state.get_frontend_workflow_progress()
+        }
+    
+    async def _handle_pending_confirmation(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Handle user response to pending confirmation"""
         
-        # Default to general conversation
+        # Check if user confirmed
+        if self._is_confirmation_positive(user_message):
+            # Clear pending confirmation
+            self.context_manager.clear_pending_confirmation(session_id)
+            
+            # Advance to next step based on current state
+            if workflow_state.current_step == WorkflowStep.INITIALIZED:
+                self.context_manager.advance_workflow_step(session_id, WorkflowStep.PARAMETERS_CONFIRMED)
+                return await self._handle_business_discovery(user_message, session_id, workflow_state)
+            
+            elif workflow_state.current_step == WorkflowStep.PARAMETERS_CONFIRMED:
+                return await self._handle_business_discovery(user_message, session_id, workflow_state)
+            
+            else:
+                # Continue with current step
+                return await self._continue_current_step(user_message, session_id, workflow_state)
+        
         else:
+            # User rejected - reset workflow
+            self.context_manager.clear_pending_confirmation(session_id)
+            self.context_manager.reset_session(session_id)
+            
             return {
-                "type": "general_conversation",
-                "confidence": 0.3,
-                "parameters": self._extract_parameters(user_message)
+                "success": True,
+                "content": "No problem! Let's start over. What location and business type would you like to target?",
+                "requires_confirmation": False,
+                "workflow_progress": None
             }
     
-    def _extract_parameters(self, user_message: str) -> Dict[str, Any]:
-        """Extract location, niche, and other parameters from user message"""
+    async def _handle_business_discovery(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Handle business discovery step"""
         
-        parameters = {}
-        message_lower = user_message.lower()
+        try:
+            logger.info(f"🔍 Starting business discovery for {workflow_state.niche} in {workflow_state.location}")
+            
+            # Execute business discovery tool
+            tool_result = await self.tool_executor.execute_tool("discover_businesses", {
+                "location": workflow_state.location,
+                "niche": workflow_state.niche,
+                "max_businesses": 10,
+                "session_id": session_id
+            })
+            
+            if tool_result.get("success"):
+                businesses = tool_result.get("result", {}).get("businesses", [])
+                discovered_count = len(businesses)
+                
+                # Update workflow state
+                self.context_manager.update_workflow_state(session_id, {
+                    "discovered_businesses": businesses
+                })
+                self.context_manager.advance_workflow_step(session_id, WorkflowStep.BUSINESSES_DISCOVERED)
+                
+                response_message = f"Perfect! I found {discovered_count} {workflow_state.niche} businesses in {workflow_state.location}. 🔍\n\nNow let me score their websites to identify improvement opportunities..."
+                
+                return {
+                    "success": True,
+                    "content": response_message,
+                    "requires_confirmation": False,
+                    "workflow_progress": self.context_manager.get_workflow_progress(session_id),
+                    "tool_results": [tool_result]
+                }
+            
+            else:
+                error_msg = tool_result.get("error", "Unknown error occurred")
+                return {
+                    "success": False,
+                    "content": f"Business discovery failed: {error_msg}. Please try again.",
+                    "requires_confirmation": False,
+                    "workflow_progress": workflow_state.get_frontend_workflow_progress()
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Business discovery error: {str(e)}")
+            return {
+                "success": False,
+                "content": f"Business discovery encountered an error: {str(e)}. Please try again.",
+                "requires_confirmation": False,
+                "workflow_progress": workflow_state.get_frontend_workflow_progress()
+            }
+    
+    async def _handle_website_scoring(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Handle website scoring step"""
         
-        # Extract location (common city names, states, etc.)
-        location_keywords = ["in", "at", "near", "around", "from"]
-        for keyword in location_keywords:
-            if keyword in message_lower:
-                # Simple extraction - in production, use NLP libraries
-                parts = message_lower.split(keyword)
-                if len(parts) > 1:
-                    potential_location = parts[1].strip().split()[0:3]  # Take up to 3 words
-                    if potential_location:
-                        parameters["location"] = " ".join(potential_location).title()
-                        break
+        try:
+            logger.info(f"📊 Starting website scoring for {len(workflow_state.discovered_businesses)} businesses")
+            
+            # Execute website scoring tool
+            tool_result = await self.tool_executor.execute_tool("score_websites", {
+                "businesses": workflow_state.discovered_businesses,
+                "session_id": session_id
+            })
+            
+            if tool_result.get("success"):
+                scored_businesses = tool_result.get("result", {}).get("businesses", [])
+                
+                # Update workflow state
+                self.context_manager.update_workflow_state(session_id, {
+                    "scored_businesses": scored_businesses
+                })
+                self.context_manager.advance_workflow_step(session_id, WorkflowStep.WEBSITES_SCORED)
+                
+                response_message = f"Great! I've scored {len(scored_businesses)} websites. Now I'll generate demo sites to showcase improvement opportunities..."
+                
+                return {
+                    "success": True,
+                    "content": response_message,
+                    "requires_confirmation": False,
+                    "workflow_progress": self.context_manager.get_workflow_progress(session_id),
+                    "tool_results": [tool_result]
+                }
+            
+            else:
+                error_msg = tool_result.get("error", "Unknown error occurred")
+                return {
+                    "success": False,
+                    "content": f"Website scoring failed: {error_msg}. Please try again.",
+                    "requires_confirmation": False,
+                    "workflow_progress": workflow_state.get_frontend_workflow_progress()
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Website scoring error: {str(e)}")
+            return {
+                "success": False,
+                "content": f"Website scoring encountered an error: {str(e)}. Please try again.",
+                "requires_confirmation": False,
+                "workflow_progress": workflow_state.get_frontend_workflow_progress()
+            }
+    
+    async def _handle_demo_generation(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Handle demo site generation step"""
         
-        # Extract niche/business type
-        niche_keywords = ["restaurants", "dentists", "lawyers", "plumbers", "electricians", "doctors", "shops", "services"]
-        for niche in niche_keywords:
-            if niche in message_lower:
-                parameters["niche"] = niche
+        try:
+            logger.info(f"🏗️ Starting demo site generation for {len(workflow_state.scored_businesses)} businesses")
+            
+            # Execute demo generation tool
+            tool_result = await self.tool_executor.execute_tool("generate_demo_sites", {
+                "businesses": workflow_state.scored_businesses,
+                "session_id": session_id
+            })
+            
+            if tool_result.get("success"):
+                demo_businesses = tool_result.get("result", {}).get("businesses", [])
+                
+                # Update workflow state
+                self.context_manager.update_workflow_state(session_id, {
+                    "demo_businesses": demo_businesses
+                })
+                self.context_manager.advance_workflow_step(session_id, WorkflowStep.DEMOS_GENERATED)
+                
+                response_message = f"Excellent! I've generated {len(demo_businesses)} demo sites. Now I'll export all the data for your records..."
+                
+                return {
+                    "success": True,
+                    "content": response_message,
+                    "requires_confirmation": False,
+                    "workflow_progress": self.context_manager.get_workflow_progress(session_id),
+                    "tool_results": [tool_result]
+                }
+            
+            else:
+                error_msg = tool_result.get("error", "Unknown error occurred")
+                return {
+                    "success": False,
+                    "content": f"Demo generation failed: {error_msg}. Please try again.",
+                    "requires_confirmation": False,
+                    "workflow_progress": workflow_state.get_frontend_workflow_progress()
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Demo generation error: {str(e)}")
+            return {
+                "success": False,
+                "content": f"Demo generation encountered an error: {str(e)}. Please try again.",
+                "requires_confirmation": False,
+                "workflow_progress": workflow_state.get_frontend_workflow_progress()
+            }
+    
+    async def _handle_data_export(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Handle data export step"""
+        
+        try:
+            logger.info(f"📋 Starting data export for {len(workflow_state.discovered_businesses)} businesses")
+            
+            # Execute data export tool
+            tool_result = await self.tool_executor.execute_tool("export_data", {
+                "businesses": workflow_state.discovered_businesses,
+                "scored_businesses": workflow_state.scored_businesses,
+                "demo_businesses": workflow_state.demo_businesses,
+                "session_id": session_id
+            })
+            
+            if tool_result.get("success"):
+                exported_data = tool_result.get("result", {})
+                
+                # Update workflow state
+                self.context_manager.update_workflow_state(session_id, {
+                    "exported_data": exported_data
+                })
+                self.context_manager.advance_workflow_step(session_id, WorkflowStep.DATA_EXPORTED)
+                
+                response_message = f"Perfect! Data exported successfully. Now I'll generate personalized outreach messages for the businesses..."
+                
+                return {
+                    "success": True,
+                    "content": response_message,
+                    "requires_confirmation": False,
+                    "workflow_progress": self.context_manager.get_workflow_progress(session_id),
+                    "tool_results": [tool_result]
+                }
+            
+            else:
+                error_msg = tool_result.get("error", "Unknown error occurred")
+                return {
+                    "success": False,
+                    "content": f"Data export failed: {error_msg}. Please try again.",
+                    "requires_confirmation": False,
+                    "workflow_progress": workflow_state.get_frontend_workflow_progress()
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Data export error: {str(e)}")
+            return {
+                "success": False,
+                "content": f"Data export encountered an error: {str(e)}. Please try again.",
+                "requires_confirmation": False,
+                "workflow_progress": workflow_state.get_frontend_workflow_progress()
+            }
+    
+    async def _handle_outreach_generation(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Handle outreach message generation step"""
+        
+        try:
+            logger.info(f"💬 Starting outreach generation for {len(workflow_state.discovered_businesses)} businesses")
+            
+            # Execute outreach generation tool
+            tool_result = await self.tool_executor.execute_tool("generate_outreach", {
+                "businesses": workflow_state.discovered_businesses,
+                "session_id": session_id
+            })
+            
+            if tool_result.get("success"):
+                outreach_businesses = tool_result.get("result", {}).get("businesses", [])
+                
+                # Update workflow state
+                self.context_manager.update_workflow_state(session_id, {
+                    "outreach_businesses": outreach_businesses
+                })
+                self.context_manager.advance_workflow_step(session_id, WorkflowStep.OUTREACH_GENERATED)
+                
+                response_message = f"Fantastic! I've generated outreach messages for {len(outreach_businesses)} businesses. Your workflow is now complete! 🎉"
+                
+                return {
+                    "success": True,
+                    "content": response_message,
+                    "requires_confirmation": False,
+                    "workflow_progress": self.context_manager.get_workflow_progress(session_id),
+                    "tool_results": [tool_result]
+                }
+            
+            else:
+                error_msg = tool_result.get("error", "Unknown error occurred")
+                return {
+                    "success": False,
+                    "content": f"Outreach generation failed: {error_msg}. Please try again.",
+                    "requires_confirmation": False,
+                    "workflow_progress": workflow_state.get_frontend_workflow_progress()
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Outreach generation error: {str(e)}")
+            return {
+                "success": False,
+                "content": f"Outreach generation encountered an error: {str(e)}. Please try again.",
+                "requires_confirmation": False,
+                "workflow_progress": workflow_state.get_frontend_workflow_progress()
+            }
+    
+    async def _handle_completed_workflow(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Handle messages after workflow completion"""
+        
+        return {
+            "success": True,
+            "content": "Your workflow is complete! All businesses have been discovered, websites scored, demo sites generated, data exported, and outreach messages created. Is there anything else you'd like me to help you with?",
+            "requires_confirmation": False,
+            "workflow_progress": workflow_state.get_frontend_workflow_progress()
+        }
+    
+    async def _continue_current_step(
+        self, 
+        user_message: str, 
+        session_id: str, 
+        workflow_state: Any
+    ) -> Dict[str, Any]:
+        """Continue with the current workflow step"""
+        
+        # Route back to appropriate handler based on current step
+        if workflow_state.current_step == WorkflowStep.BUSINESSES_DISCOVERED:
+            return await self._handle_website_scoring(user_message, session_id, workflow_state)
+        elif workflow_state.current_step == WorkflowStep.WEBSITES_SCORED:
+            return await self._handle_demo_generation(user_message, session_id, workflow_state)
+        elif workflow_state.current_step == WorkflowStep.DEMOS_GENERATED:
+            return await self._handle_data_export(user_message, session_id, workflow_state)
+        elif workflow_state.current_step == WorkflowStep.DATA_EXPORTED:
+            return await self._handle_outreach_generation(user_message, session_id, workflow_state)
+        else:
+            return await self._handle_completed_workflow(user_message, session_id, workflow_state)
+    
+    def _extract_location_and_niche(self, message: str) -> tuple[Optional[str], Optional[str]]:
+        """Extract location and business niche from user message"""
+        
+        message_lower = message.lower().strip()
+        
+        # Common business types
+        business_types = [
+            "gym", "restaurant", "cafe", "bar", "salon", "spa", "dentist", "doctor",
+            "lawyer", "accountant", "plumber", "electrician", "real estate", "car dealer",
+            "pet store", "veterinarian", "pharmacy", "bakery", "butcher", "florist"
+        ]
+        
+        # Extract business type
+        niche = None
+        for business_type in business_types:
+            if business_type in message_lower:
+                niche = business_type
                 break
         
-        # Extract number of businesses
-        import re
-        number_match = re.search(r'(\d+)\s*(businesses?|companies?)', message_lower)
-        if number_match:
-            parameters["max_businesses"] = int(number_match.group(1))
+        # Extract location (look for common location patterns)
+        location = None
         
-        return parameters
+        # Look for "in [location]" pattern
+        if " in " in message_lower:
+            parts = message_lower.split(" in ")
+            if len(parts) > 1:
+                location = parts[1].strip()
+        
+        # Look for city, state patterns
+        if not location:
+            import re
+            # Match patterns like "Austin, TX", "London, UK", "New York"
+            location_match = re.search(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)(?:\s*,\s*([A-Z]{2,3}))?', message)
+            if location_match:
+                location = location_match.group(0)
+        
+        return location, niche
     
-    async def _handle_business_discovery(self, intent: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Handle business discovery requests"""
+    def _is_confirmation_positive(self, message: str) -> bool:
+        """Check if user message indicates positive confirmation"""
         
-        parameters = intent.get("parameters", {})
-        location = parameters.get("location", "your area")
-        niche = parameters.get("niche", "businesses")
+        message_lower = message.lower().strip()
+        positive_words = ["yes", "y", "ok", "okay", "correct", "right", "confirm", "proceed", "sure", "absolutely"]
         
-        if not parameters.get("location") or not parameters.get("niche"):
-            return {
-                "content": f"I'd be happy to help you find {niche}! To get started, I need to know the location. Where would you like me to search?",
-                "tool_calls": [],
-                "requires_confirmation": False
-            }
-        
-        return {
-            "content": f"Great! I'll search for {niche} in {location}. Let me discover the businesses in that area for you.",
-            "tool_calls": [{
-                "function": {
-                    "name": "discover_businesses",
-                    "arguments": json.dumps({
-                        "location": location,
-                        "niche": niche,
-                        "max_businesses": parameters.get("max_businesses", 10)
-                    })
-                }
-            }],
-            "requires_confirmation": False
-        }
-    
-    async def _handle_website_scoring(self, intent: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Handle website scoring requests"""
-        
-        return {
-            "content": "I'll analyze the website quality for the discovered businesses using Lighthouse and heuristic evaluation.",
-            "tool_calls": [{
-                "function": {
-                    "name": "score_websites",
-                    "arguments": json.dumps({
-                        "scoring_method": "comprehensive"
-                    })
-                }
-            }],
-            "requires_confirmation": False
-        }
-    
-    async def _handle_demo_generation(self, intent: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Handle demo website generation requests"""
-        
-        return {
-            "content": "I'll create demo websites for the businesses to showcase improvement opportunities.",
-            "tool_calls": [{
-                "function": {
-                    "name": "generate_demo_sites",
-                    "arguments": json.dumps({
-                        "template_style": "modern"
-                    })
-                }
-            }],
-            "requires_confirmation": False
-        }
-    
-    async def _handle_data_export(self, intent: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Handle data export requests"""
-        
-        return {
-            "content": "I'll export the business and scoring data for you.",
-            "tool_calls": [{
-                "function": {
-                    "name": "export_data",
-                    "arguments": json.dumps({
-                        "format": "csv"
-                    })
-                }
-            }],
-            "requires_confirmation": False
-        }
-    
-    async def _handle_outreach_generation(self, intent: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Handle outreach message generation requests"""
-        
-        return {
-            "content": "I'll generate personalized outreach messages for the businesses.",
-            "tool_calls": [{
-                "function": {
-                    "name": "generate_outreach",
-                    "arguments": json.dumps({
-                        "outreach_type": "email"
-                    })
-                }
-            }],
-            "requires_confirmation": False
-        }
-    
-    async def _handle_parameter_confirmation(self, intent: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Handle parameter confirmation requests"""
-        
-        return {
-            "content": "I'll confirm the parameters and proceed with the workflow.",
-            "tool_calls": [{
-                "function": {
-                    "name": "confirm_parameters",
-                    "arguments": json.dumps({})
-                }
-            }],
-            "requires_confirmation": True
-        }
-    
-    async def _handle_general_help(self, intent: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Handle general help requests"""
-        
-        help_text = """
-I'm the LeadGenBuilder AI agent! I can help you with:
-
-🔍 **Business Discovery**: Find businesses in specific locations and niches
-📊 **Website Scoring**: Evaluate website quality and performance
-🏗️ **Demo Generation**: Create demo websites to showcase improvements
-📋 **Data Export**: Export business and scoring data
-💬 **Outreach Generation**: Create personalized outreach messages
-
-To get started, just tell me what you'd like to do! For example:
-- "Find restaurants in New York"
-- "Score websites for dentists in Chicago"
-- "Create demo sites for local businesses"
-
-What would you like me to help you with?
-        """.strip()
-        
-        return {
-            "content": help_text,
-            "tool_calls": [],
-            "requires_confirmation": False
-        }
-    
-    async def _handle_unknown_intent(self, intent: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        """Handle unknown or unclear intents"""
-        
-        return {
-            "content": "I'm not quite sure what you'd like me to do. Could you please be more specific? I can help you discover businesses, score websites, generate demos, and more. Just let me know what you need!",
-            "tool_calls": [],
-            "requires_confirmation": False
-        }
-    
-    def update_context_from_tool_result(self, session_id: str, tool_name: str, tool_result: Dict[str, Any]):
-        """Update AI agent context based on tool execution results"""
-        
-        if session_id not in self.conversation_contexts:
-            return
-        
-        context = self.conversation_contexts[session_id]
-        
-        # Store tool execution results
-        if "tool_results" not in context:
-            context["tool_results"] = []
-        
-        context["tool_results"].append({
-            "tool_name": tool_name,
-            "result": tool_result,
-            "timestamp": datetime.now()
-        })
-        
-        # Update extracted parameters if tool provided new information
-        if tool_result.get("success") and tool_result.get("result"):
-            result_data = tool_result["result"]
-            
-            if "location" in result_data:
-                context["extracted_parameters"]["location"] = result_data["location"]
-            
-            if "niche" in result_data:
-                context["extracted_parameters"]["niche"] = result_data["niche"]
-            
-            if "businesses" in result_data:
-                context["extracted_parameters"]["business_count"] = len(result_data["businesses"])
-    
-    def get_session_context(self, session_id: str) -> Dict[str, Any]:
-        """Get the current context for a session"""
-        
-        return self.conversation_contexts.get(session_id, {})
-    
-    def clear_session_context(self, session_id: str):
-        """Clear context for a session"""
-        
-        if session_id in self.conversation_contexts:
-            del self.conversation_contexts[session_id]
+        return any(word in message_lower for word in positive_words)

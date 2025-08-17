@@ -60,11 +60,10 @@ class TestHeuristicEvaluationService:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = '<html><head><title>Test</title></head><body>Test content</body></html>'
-        mock_response.content = b'<html><head><title>Test</title></head><body>Test content</body></html>'
         mock_get.return_value = mock_response
         
         html_content, soup = self.service._fetch_website(
-            self.website_url
+            self.website_url, self.run_id, self.business_id
         )
         
         assert html_content is not None
@@ -77,18 +76,16 @@ class TestHeuristicEvaluationService:
         """Test website fetching timeout handling."""
         mock_get.side_effect = requests.Timeout("Request timed out")
         
-        html_content, soup = self.service._fetch_website(self.website_url)
-        assert html_content is None
-        assert soup is None
+        with pytest.raises(TimeoutError):
+            self.service._fetch_website(self.website_url, self.run_id, self.business_id)
     
     @patch('src.services.heuristic_evaluation_service.requests.get')
     def test_fetch_website_request_exception(self, mock_get):
         """Test website fetching request exception handling."""
         mock_get.side_effect = requests.RequestException("Request failed")
         
-        html_content, soup = self.service._fetch_website(self.website_url)
-        assert html_content is None
-        assert soup is None
+        with pytest.raises(requests.RequestException):
+            self.service._fetch_website(self.website_url, self.run_id, self.business_id)
     
     def test_evaluate_trust_signals_https(self):
         """Test trust signal evaluation with HTTPS."""
@@ -96,7 +93,7 @@ class TestHeuristicEvaluationService:
         soup = BeautifulSoup(html, 'html.parser')
         
         trust_signals = self.service._evaluate_trust_signals(
-            "https://example.com", soup
+            soup, "https://example.com", self.run_id, self.business_id
         )
         
         assert trust_signals.has_https is True
@@ -109,7 +106,7 @@ class TestHeuristicEvaluationService:
         soup = BeautifulSoup(html, 'html.parser')
         
         trust_signals = self.service._evaluate_trust_signals(
-            "http://example.com", soup
+            soup, "http://example.com", self.run_id, self.business_id
         )
         
         assert trust_signals.has_https is False
@@ -129,7 +126,7 @@ class TestHeuristicEvaluationService:
         soup = BeautifulSoup(html, 'html.parser')
         
         trust_signals = self.service._evaluate_trust_signals(
-            self.website_url, soup
+            soup, self.website_url, self.run_id, self.business_id
         )
         
         assert trust_signals.has_phone_number is True
@@ -152,7 +149,7 @@ class TestHeuristicEvaluationService:
         '''
         soup = BeautifulSoup(html, 'html.parser')
         
-        cro_elements = self.service._evaluate_cro_elements(soup)
+        cro_elements = self.service._evaluate_cro_elements(soup, self.run_id, self.business_id)
         
         assert cro_elements.has_cta_buttons is True
         assert cro_elements.has_contact_forms is True
@@ -175,7 +172,7 @@ class TestHeuristicEvaluationService:
         '''
         soup = BeautifulSoup(html, 'html.parser')
         
-        mobile_usability = self.service._evaluate_mobile_usability(soup)
+        mobile_usability = self.service._evaluate_mobile_usability(soup, self.run_id, self.business_id)
         
         assert mobile_usability.has_viewport_meta is True
         assert mobile_usability.has_touch_targets is True
@@ -201,7 +198,7 @@ class TestHeuristicEvaluationService:
         '''
         soup = BeautifulSoup(html, 'html.parser')
         
-        content_quality = self.service._evaluate_content_quality(soup)
+        content_quality = self.service._evaluate_content_quality(soup, self.run_id, self.business_id)
         
         assert content_quality.has_proper_headings is True
         assert content_quality.has_alt_text is True
@@ -227,7 +224,7 @@ class TestHeuristicEvaluationService:
         '''
         soup = BeautifulSoup(html, 'html.parser')
         
-        social_proof = self.service._evaluate_social_proof(soup)
+        social_proof = self.service._evaluate_social_proof(soup, self.run_id, self.business_id)
         
         assert social_proof.has_social_media_links is True
         assert social_proof.has_customer_reviews is True
@@ -335,34 +332,11 @@ class TestHeuristicEvaluationService:
     
     def test_determine_confidence_level_high(self):
         """Test confidence level determination for high confidence."""
-        trust_signals = TrustSignals(
-            has_https=True, has_privacy_policy=True, has_contact_info=True,
-            has_about_page=True, has_terms_of_service=True, has_ssl_certificate=True,
-            has_business_address=True, has_phone_number=True, has_email=True
-        )
-
-        cro_elements = CROElements(
-            has_cta_buttons=True, has_contact_forms=True, has_pricing_tables=True,
-            has_testimonials=True, has_reviews=True, has_social_proof=True,
-            has_urgency_elements=True, has_trust_badges=True
-        )
-        
-        mobile_usability = MobileUsability(
-            has_viewport_meta=True, has_touch_targets=True, has_responsive_design=True,
-            has_mobile_navigation=True, has_readable_fonts=True, has_adequate_spacing=True
-        )
-
-        content_quality = ContentQuality(
-            has_proper_headings=True, has_alt_text=True, has_meta_description=True,
-            has_meta_keywords=True, has_structured_data=True, has_internal_links=True,
-            has_external_links=True, has_blog_content=True
-        )
-
-        social_proof = SocialProof(
-            has_social_media_links=True, has_customer_reviews=True, has_testimonials=True,
-            has_case_studies=True, has_awards_certifications=True, has_partner_logos=True,
-            has_user_generated_content=True
-        )
+        trust_signals = TrustSignals(has_https=True, has_privacy_policy=True, has_contact_info=True)
+        cro_elements = CROElements(has_cta_buttons=True, has_contact_forms=True)
+        mobile_usability = MobileUsability(has_viewport_meta=True, has_touch_targets=True)
+        content_quality = ContentQuality(has_proper_headings=True, has_alt_text=True)
+        social_proof = SocialProof(has_social_media_links=True, has_customer_reviews=True)
         
         confidence = self.service._determine_confidence_level(
             trust_signals, cro_elements, mobile_usability, content_quality, social_proof
@@ -372,22 +346,11 @@ class TestHeuristicEvaluationService:
     
     def test_determine_confidence_level_medium(self):
         """Test confidence level determination for medium confidence."""
-        trust_signals = TrustSignals(
-            has_https=True, has_privacy_policy=True, has_contact_info=True,
-            has_about_page=True, has_terms_of_service=True
-        )
-        cro_elements = CROElements(
-            has_cta_buttons=True, has_contact_forms=True, has_testimonials=True
-        )
-        mobile_usability = MobileUsability(
-            has_viewport_meta=True, has_touch_targets=True, has_responsive_design=True
-        )
-        content_quality = ContentQuality(
-            has_proper_headings=True, has_alt_text=True, has_meta_description=True
-        )
-        social_proof = SocialProof(
-            has_social_media_links=True, has_customer_reviews=True, has_testimonials=True
-        )
+        trust_signals = TrustSignals(has_https=True, has_privacy_policy=True)
+        cro_elements = CROElements(has_cta_buttons=True)
+        mobile_usability = MobileUsability(has_viewport_meta=True)
+        content_quality = ContentQuality(has_proper_headings=True)
+        social_proof = SocialProof(has_social_media_links=True)
         
         confidence = self.service._determine_confidence_level(
             trust_signals, cro_elements, mobile_usability, content_quality, social_proof
@@ -453,7 +416,6 @@ class TestHeuristicEvaluationService:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = '<html><body><button>Get Started</button><form></form></body></html>'
-        mock_response.content = b'<html><body><button>Get Started</button><form></form></body></html>'
         mock_get.return_value = mock_response
         
         result = self.service.run_heuristic_evaluation(
@@ -493,17 +455,49 @@ class TestHeuristicEvaluationService:
         )
         
         assert result["success"] is False
-        assert "Failed to fetch website content" in result["error"]
-        assert result["error_code"] == "FETCH_FAILED"
+        assert "Fetch failed" in result["error"]
+        assert result["error_code"] == "EVALUATION_FAILED"
     
     def test_helper_methods(self):
         """Test helper methods for pattern matching."""
-        # These methods are not implemented in the current service
-        # They were part of an earlier design that was simplified
-        pass
+        html = '''
+        <html>
+        <body>
+            <a href="/privacy-policy">Privacy</a>
+            <a href="/terms-of-service">Terms</a>
+            <p>Contact us at 123-456-7890 or test@example.com</p>
+            <p>Address: 123 Main Street, City, State</p>
+        </body>
+        </html>
+        '''
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Test page existence checking
+        assert self.service._check_page_exists(soup, ['privacy', 'privacy-policy']) is True
+        assert self.service._check_page_exists(soup, ['terms', 'terms-of-service']) is True
+        assert self.service._check_page_exists(soup, ['nonexistent']) is False
+        
+        # Test contact information detection
+        assert self.service._check_phone_present(soup) is True
+        assert self.service._check_email_present(soup) is True
+        assert self.service._check_address_present(soup) is True
     
     def test_pattern_methods(self):
         """Test pattern matching methods."""
-        # These methods are not implemented in the current service
-        # They were part of an earlier design that was simplified
-        pass
+        # Test CTA patterns
+        cta_patterns = self.service._get_cta_text_patterns()
+        assert 'get started' in cta_patterns
+        assert 'sign up' in cta_patterns
+        assert 'contact us' in cta_patterns
+        
+        # Test pricing patterns
+        pricing_patterns = self.service._get_pricing_patterns()
+        assert '$' in pricing_patterns
+        assert 'price' in pricing_patterns
+        assert 'subscription' in pricing_patterns
+        
+        # Test testimonial patterns
+        testimonial_patterns = self.service._get_testimonial_patterns()
+        assert 'testimonial' in testimonial_patterns
+        assert 'review' in testimonial_patterns
+        assert 'feedback' in testimonial_patterns

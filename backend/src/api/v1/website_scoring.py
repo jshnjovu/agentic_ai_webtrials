@@ -7,7 +7,6 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from typing import Optional
 import uuid
 import time
-from datetime import datetime
 
 from src.schemas.website_scoring import (
     LighthouseAuditRequest,
@@ -19,29 +18,23 @@ from src.schemas.website_scoring import (
     HeuristicEvaluationRequest,
     HeuristicEvaluationResponse,
     HeuristicEvaluationError,
+    ScoreValidationRequest,
+    ScoreValidationResponse,
+    RateLimitExceededError,
     FallbackScoringRequest,
     FallbackScoringResponse,
     FallbackScoringError,
-    FallbackMonitoringResponse,
-    FallbackScore,
-    ScoreValidationRequest,
-    ScoreValidationResponse,
-    ScoreValidationError
+    FallbackMonitoringResponse
 )
 from src.services.lighthouse_service import LighthouseService
 from src.services.heuristic_evaluation_service import HeuristicEvaluationService
-from src.services.fallback_scoring_service import FallbackScoringService
 from src.services.score_validation_service import ScoreValidationService
+from src.services.fallback_scoring_service import FallbackScoringService
+from src.services.rate_limiter import RateLimiter
 from src.models.website_scoring import WebsiteScore, LighthouseAuditResult
 from src.utils.score_calculation import calculate_overall_score, get_score_insights
-from src.services.rate_limiter import RateLimiter
 
 router = APIRouter(prefix="/website-scoring", tags=["website-scoring"])
-
-
-class RateLimitExceededError(Exception):
-    """Custom exception for rate limit exceeded."""
-    pass
 
 
 def get_lighthouse_service() -> LighthouseService:
@@ -54,11 +47,6 @@ def get_heuristic_evaluation_service() -> HeuristicEvaluationService:
     return HeuristicEvaluationService()
 
 
-def get_fallback_scoring_service() -> FallbackScoringService:
-    """Dependency to get FallbackScoringService instance."""
-    return FallbackScoringService()
-
-
 def get_score_validation_service() -> ScoreValidationService:
     """Dependency to get ScoreValidationService instance."""
     return ScoreValidationService()
@@ -67,6 +55,11 @@ def get_score_validation_service() -> ScoreValidationService:
 def get_rate_limiter() -> RateLimiter:
     """Dependency to get RateLimiter instance."""
     return RateLimiter()
+
+
+def get_fallback_scoring_service() -> FallbackScoringService:
+    """Dependency to get FallbackScoringService instance."""
+    return FallbackScoringService()
 
 
 @router.post("/lighthouse", response_model=LighthouseAuditResponse)
@@ -350,197 +343,6 @@ async def run_heuristic_evaluation(
         )
 
 
-@router.post("/fallback", response_model=FallbackScoringResponse)
-async def run_fallback_scoring(
-    request: FallbackScoringRequest,
-    background_tasks: BackgroundTasks,
-    service: FallbackScoringService = Depends(get_fallback_scoring_service)
-) -> FallbackScoringResponse:
-    """
-    Run fallback scoring when Lighthouse fails.
-    
-    Args:
-        request: Fallback scoring request with website URL and failure reason
-        background_tasks: FastAPI background tasks for async processing
-        service: Fallback scoring service instance
-        
-    Returns:
-        Fallback scoring response with heuristic-only scores and quality assessment
-        
-    Raises:
-        HTTPException: If fallback scoring fails or validation errors occur
-    """
-    try:
-        # Generate run_id if not provided
-        if not request.run_id:
-            request.run_id = str(uuid.uuid4())
-        
-        # Validate request
-        if not service.validate_input(request.dict()):
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid fallback scoring request"
-            )
-        
-        # Execute fallback scoring
-        fallback_result = service.run_fallback_scoring(
-            website_url=str(request.website_url),
-            business_id=request.business_id,
-            lighthouse_failure_reason=request.lighthouse_failure_reason,
-            run_id=request.run_id,
-            fallback_parameters=request.fallback_parameters
-        )
-        
-        # Handle error responses
-        if not fallback_result.get("success", False):
-            error_response = FallbackScoringError(
-                success=False,
-                error=fallback_result.get("error", "Unknown error occurred"),
-                context=fallback_result.get("context", "fallback_execution"),
-                website_url=str(request.website_url),
-                business_id=request.business_id,
-                run_id=request.run_id,
-                fallback_timestamp=time.time(),
-                error_code=fallback_result.get("error_code"),
-                fallback_score=FallbackScore(
-                    trust_score=0.0,
-                    cro_score=0.0,
-                    mobile_score=0.0,
-                    content_score=0.0,
-                    social_score=0.0,
-                    overall_score=0.0,
-                    confidence_level=ConfidenceLevel.LOW,
-                    fallback_reason=request.lighthouse_failure_reason,
-                    fallback_timestamp=time.time()
-                ),
-                fallback_reason={
-                    'failure_type': 'UNKNOWN_ERROR',
-                    'error_message': fallback_result.get("error", "Unknown error"),
-                    'severity_level': 'medium',
-                    'fallback_decision': 'immediate_fallback',
-                    'retry_attempts': 0,
-                    'success_status': False,
-                    'fallback_timestamp': time.time()
-                },
-                fallback_quality={
-                    'reliability_score': 0.0,
-                    'data_completeness': 0.0,
-                    'confidence_adjustment': 0.0,
-                    'quality_indicators': {},
-                    'recommendation': 'Unable to assess quality due to error'
-                }
-            )
-            
-            # Return error response with appropriate HTTP status
-            if fallback_result.get("error_code") == "RATE_LIMIT_EXCEEDED":
-                raise HTTPException(
-                    status_code=429,
-                    detail={
-                        "error": "Rate limit exceeded for fallback scoring",
-                        "error_code": "RATE_LIMIT_EXCEEDED",
-                        "context": "rate_limit_check",
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
-            elif fallback_result.get("context") == "fallback_strategy":
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "Fallback not recommended for this failure type",
-                        "error_code": "FALLBACK_NOT_RECOMMENDED",
-                        "context": "fallback_strategy",
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": fallback_result.get("error", "Fallback scoring failed"),
-                        "error_code": fallback_result.get("error_code"),
-                        "context": fallback_result.get("context", "fallback_execution"),
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
-        
-        # Create successful response
-        response = FallbackScoringResponse(
-            success=True,
-            website_url=str(request.website_url),
-            business_id=request.business_id,
-            run_id=request.run_id,
-            fallback_timestamp=fallback_result.get("fallback_timestamp", time.time()),
-            fallback_score=fallback_result.get("fallback_score"),
-            fallback_reason=fallback_result.get("fallback_reason"),
-            fallback_quality=fallback_result.get("fallback_quality"),
-            retry_attempts=fallback_result.get("retry_attempts", 0)
-        )
-        
-        # Add background task for data persistence (if database is configured)
-        background_tasks.add_task(
-            _persist_fallback_results,
-            fallback_result,
-            request.business_id,
-            request.run_id
-        )
-        
-        return response
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error during fallback scoring: {str(e)}"
-        )
-
-
-@router.get("/fallback/monitoring", response_model=FallbackMonitoringResponse)
-async def get_fallback_monitoring(
-    service: FallbackScoringService = Depends(get_fallback_scoring_service)
-) -> FallbackMonitoringResponse:
-    """
-    Get fallback scoring monitoring and analytics data.
-    
-    Args:
-        service: Fallback scoring service instance
-        
-    Returns:
-        Fallback monitoring response with metrics and recommendations
-    """
-    try:
-        # Get fallback metrics
-        metrics = service.get_fallback_metrics()
-        
-        # Create monitoring response
-        monitoring_response = FallbackMonitoringResponse(
-            success=True,
-            timestamp=time.time(),
-            metrics=metrics,
-            recent_fallbacks=[],  # This would typically query the database
-            failure_patterns={},   # This would typically analyze historical data
-            recommendations=[
-                "Monitor timeout failures for potential performance improvements",
-                "Consider implementing circuit breaker for high-severity failures",
-                "Track fallback success rates to optimize heuristic algorithms"
-            ]
-        )
-        
-        return monitoring_response
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error retrieving fallback monitoring: {str(e)}"
-        )
-
-
 @router.get("/lighthouse/{business_id}/summary", response_model=WebsiteScoringSummary)
 async def get_website_scoring_summary(
     business_id: str,
@@ -586,38 +388,53 @@ async def get_website_scoring_summary(
 
 
 @router.post("/validate", response_model=ScoreValidationResponse)
-async def validate_website_scores(
+async def validate_scores(
     request: ScoreValidationRequest,
-    score_validation_service: ScoreValidationService = Depends(get_score_validation_service),
+    background_tasks: BackgroundTasks,
+    service: ScoreValidationService = Depends(get_score_validation_service),
     rate_limiter: RateLimiter = Depends(get_rate_limiter)
 ) -> ScoreValidationResponse:
     """
     Validate website scores and calculate confidence levels.
     
-    This endpoint performs cross-validation between Lighthouse and heuristic scoring methods,
-    calculates confidence levels, detects discrepancies, and provides weighted final scores.
-    
     Args:
-        request: Score validation request with business_id, run_id, and scoring data
-        score_validation_service: Service for score validation and confidence calculation
-        rate_limiter: Rate limiting service for API protection
+        request: Score validation request with Lighthouse and heuristic scores
+        background_tasks: FastAPI background tasks for async processing
+        service: Score validation service instance
+        rate_limiter: Rate limiter service instance
         
     Returns:
-        ScoreValidationResponse with validation results, confidence metrics, and issue priorities
+        Score validation response with confidence metrics and final scores
         
     Raises:
-        HTTPException: For validation errors, rate limiting violations, or service failures
+        HTTPException: If validation fails or rate limit is exceeded
     """
-    start_time = time.time()
-    
     try:
-        # Rate limiting check
-        can_request, reason = rate_limiter.can_make_request("validation")
-        if not can_request:
-            raise RateLimitExceededError(f"Rate limit exceeded: {reason}")
+        # Check rate limiting for validation API
+        can_proceed, message = rate_limiter.can_make_request("validation")
+        if not can_proceed:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "Rate limit exceeded for validation API",
+                    "message": message,
+                    "retry_after": 60
+                }
+            )
         
-        # Validate scores using the service
-        validation_result = await score_validation_service.validate_scores(
+        # Generate run_id if not provided
+        if not request.run_id:
+            request.run_id = str(uuid.uuid4())
+        
+        # Validate request
+        if not service.validate_input(request.dict()):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid score validation request"
+            )
+        
+        # Execute validation
+        validation_result = await service.validate_scores(
             lighthouse_scores=request.lighthouse_scores,
             heuristic_scores=request.heuristic_scores,
             business_id=request.business_id,
@@ -625,52 +442,194 @@ async def validate_website_scores(
         )
         
         # Record successful request
-        rate_limiter.record_request("validation", True)
+        rate_limiter.record_request("validation", True, request.run_id)
         
-        # Calculate processing time
-        processing_time = time.time() - start_time
-        
-        # Create response
-        response = ScoreValidationResponse(
+        # Return successful response
+        return ScoreValidationResponse(
             success=True,
+            business_id=request.business_id,
+            run_id=request.run_id,
             validation_result=validation_result,
-            processing_time=processing_time,
-            timestamp=datetime.utcnow().isoformat()
+            final_score=FinalScore(
+                business_id=request.business_id,
+                run_id=request.run_id,
+                weighted_final_score=validation_result.final_weighted_score,
+                confidence_level=validation_result.confidence_level,
+                lighthouse_weight=0.8,
+                heuristic_weight=0.2,
+                discrepancy_flags=[],
+                issue_priorities=validation_result.issue_priorities,
+                validation_status=validation_result.validation_status,
+                calculation_timestamp=time.time()
+            ),
+            validation_timestamp=time.time()
         )
         
-        # Background task to persist validation results
-        BackgroundTasks().add_task(
-            _persist_validation_results,
-            validation_result.model_dump(),
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Record failed request
+        rate_limiter.record_request("validation", False, request.run_id)
+        
+        # Return error response
+        raise HTTPException(
+            status_code=500,
+            detail=f"Score validation failed: {str(e)}"
+        )
+
+
+@router.post("/fallback", response_model=FallbackScoringResponse)
+async def run_fallback_scoring(
+    request: FallbackScoringRequest,
+    background_tasks: BackgroundTasks,
+    service: FallbackScoringService = Depends(get_fallback_scoring_service),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter)
+) -> FallbackScoringResponse:
+    """
+    Run fallback scoring when Lighthouse fails.
+    
+    Args:
+        request: Fallback scoring request with website URL and failure reason
+        background_tasks: FastAPI background tasks for async processing
+        service: Fallback scoring service instance
+        rate_limiter: Rate limiter instance
+        
+    Returns:
+        Fallback scoring response with heuristic-only scores and confidence indicators
+        
+    Raises:
+        HTTPException: If fallback scoring fails or validation errors occur
+    """
+    try:
+        # Generate run_id if not provided
+        if not request.run_id:
+            request.run_id = str(uuid.uuid4())
+        
+        # Check rate limiting
+        can_make_request, message = rate_limiter.can_make_request("fallback", request.business_id)
+        if not can_make_request:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: {message}"
+            )
+        
+        # Execute fallback scoring
+        fallback_result = service.run_fallback_scoring(
+            website_url=str(request.website_url),
+            business_id=request.business_id,
+            lighthouse_failure_reason=request.lighthouse_failure_reason,
+            run_id=request.run_id,
+            fallback_parameters=request.fallback_parameters
+        )
+        
+        # Handle error responses
+        if not fallback_result.get("success", False):
+            error_response = FallbackScoringError(
+                success=False,
+                error=fallback_result.get("error", "Unknown error occurred"),
+                error_code=fallback_result.get("error_code", "UNKNOWN_ERROR"),
+                context=fallback_result.get("context", "fallback_scoring"),
+                website_url=str(request.website_url),
+                business_id=request.business_id,
+                run_id=request.run_id,
+                fallback_timestamp=time.time()
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=error_response.dict()
+            )
+        
+        # Add background task for data persistence
+        background_tasks.add_task(
+            _persist_fallback_results,
+            fallback_result,
             request.business_id,
             request.run_id
         )
         
-        return response
+        # Record successful request
+        rate_limiter.record_request("fallback", True, request.run_id)
         
-    except RateLimitExceededError as e:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded: {str(e)}"
+        # Return success response
+        return FallbackScoringResponse(
+            success=True,
+            business_id=request.business_id,
+            run_id=request.run_id,
+            fallback_score=fallback_result.get("fallback_score"),
+            error=None,
+            error_code=None,
+            fallback_timestamp=fallback_result.get("fallback_timestamp", time.time())
         )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Validation error: {str(e)}"
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Record failed request
+        rate_limiter.record_request("fallback", False, request.run_id)
+        
+        # Return error response
+        error_response = FallbackScoringError(
+            success=False,
+            error=str(e),
+            error_code="INTERNAL_ERROR",
+            context="fallback_scoring",
+            website_url=str(request.website_url),
+            business_id=request.business_id,
+            run_id=request.run_id,
+            fallback_timestamp=time.time()
         )
+        
+        raise HTTPException(
+            status_code=500,
+            detail=error_response.dict()
+        )
+
+
+@router.get("/fallback/monitoring", response_model=FallbackMonitoringResponse)
+async def get_fallback_monitoring(
+    business_id: str,
+    run_id: Optional[str] = None,
+    service: FallbackScoringService = Depends(get_fallback_scoring_service)
+) -> FallbackMonitoringResponse:
+    """
+    Get fallback scoring monitoring and metrics.
+    
+    Args:
+        business_id: Business identifier
+        run_id: Optional run identifier for specific run
+        service: Fallback scoring service instance
+        
+    Returns:
+        Fallback monitoring response with metrics and performance data
+        
+    Raises:
+        HTTPException: If monitoring data cannot be retrieved
+    """
+    try:
+        # Get fallback metrics
+        metrics = service.get_fallback_metrics()
+        
+        return FallbackMonitoringResponse(
+            success=True,
+            business_id=business_id,
+            run_id=run_id or "monitoring",
+            fallback_metrics=metrics,
+            monitoring_timestamp=time.time()
+        )
+        
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during score validation: {str(e)}"
+            detail=f"Failed to retrieve fallback monitoring data: {str(e)}"
         )
 
 
 @router.get("/health")
 async def website_scoring_health_check(
     lighthouse_service: LighthouseService = Depends(get_lighthouse_service),
-    heuristic_service: HeuristicEvaluationService = Depends(get_heuristic_evaluation_service),
-    fallback_service: FallbackScoringService = Depends(get_fallback_scoring_service),
-    score_validation_service: ScoreValidationService = Depends(get_score_validation_service)
+    heuristic_service: HeuristicEvaluationService = Depends(get_heuristic_evaluation_service)
 ) -> dict:
     """
     Health check endpoint for website scoring services.
@@ -695,18 +654,7 @@ async def website_scoring_health_check(
                 "cro_element_identification",
                 "mobile_usability_assessment",
                 "content_quality_evaluation",
-                "social_proof_detection",
-                "fallback_scoring",
-                "automatic_fallback_detection",
-                "retry_logic_with_exponential_backoff",
-                "fallback_quality_assessment",
-                "fallback_monitoring_and_analytics",
-                "score_validation_and_confidence",
-                "cross_validation_between_methods",
-                "confidence_level_calculation",
-                "discrepancy_detection",
-                "weighted_final_score_calculation",
-                "issue_prioritization_ranking"
+                "social_proof_detection"
             ]
         }
     except Exception as e:
@@ -782,73 +730,23 @@ async def _persist_fallback_results(
     run_id: str
 ) -> None:
     """
-    Background task to persist fallback results to database.
+    Background task to persist fallback scoring results to database.
     
     Args:
-        fallback_result: Fallback result data
+        fallback_result: Fallback scoring result data
         business_id: Business identifier
         run_id: Run identifier
     """
     try:
         # This would typically save to database using the models
         # For now, just log the persistence attempt
-        print(f"Would persist fallback results for business {business_id}, run {run_id}")
+        print(f"Would persist fallback scoring results for business {business_id}, run {run_id}")
         
         # Example of what would be saved:
         # fallback_score = FallbackScore.from_schema_data(fallback_result)
-        # fallback_reason = FallbackReason.from_schema_data(fallback_result)
-        # fallback_quality = FallbackQuality.from_schema_data(fallback_result)
         # database.session.add(fallback_score)
-        # database.session.add(fallback_reason)
-        # database.session.add(fallback_quality)
         # database.session.commit()
         
     except Exception as e:
         # Log error but don't fail the main request
-        print(f"Failed to persist fallback results: {str(e)}")
-
-
-async def _persist_validation_results(
-    validation_result: dict,
-    business_id: str,
-    run_id: str
-) -> None:
-    """
-    Background task to persist validation results to database.
-    
-    Args:
-        validation_result: Validation result data
-        business_id: Business identifier
-        run_id: Run identifier
-    """
-    try:
-        # This would typically save to database using the models
-        # For now, just log the persistence attempt
-        print(f"Would persist validation results for business {business_id}, run {run_id}")
-        
-        # Example of what would be saved:
-        # score_validation_result = ScoreValidationResult.from_schema_data(validation_result)
-        # validation_metrics = ValidationMetrics.from_schema_data(validation_result.get('validation_metrics', {}))
-        # final_score = FinalScore.from_schema_data(validation_result.get('final_score', {}))
-        # 
-        # # Save main validation result
-        # database.session.add(score_validation_result)
-        # database.session.commit()
-        # 
-        # # Save related metrics and scores
-        # validation_metrics.validation_result_id = score_validation_result.id
-        # final_score.validation_result_id = score_validation_result.id
-        # database.session.add(validation_metrics)
-        # database.session.add(final_score)
-        # 
-        # # Save issue priorities
-        # for issue_data in validation_result.get('issue_priorities', []):
-        #     issue_priority = IssuePriority.from_schema_data(issue_data)
-        #     issue_priority.validation_result_id = score_validation_result.id
-        #     database.session.add(issue_priority)
-        # 
-        # database.session.commit()
-        
-    except Exception as e:
-        # Log error but don't fail the main request
-        print(f"Failed to persist validation results: {str(e)}")
+        print(f"Failed to persist fallback scoring results: {str(e)}")

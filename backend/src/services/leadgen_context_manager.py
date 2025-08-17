@@ -14,14 +14,14 @@ logger = logging.getLogger(__name__)
 
 class WorkflowStep(Enum):
     """Workflow steps for the lead generation process"""
-    INITIALIZED = "initialized"
-    PARAMETERS_CONFIRMED = "parameters_confirmed"
-    BUSINESSES_DISCOVERED = "businesses_discovered"
-    WEBSITES_SCORED = "websites_scored"
-    DEMOS_GENERATED = "demos_generated"
-    DATA_EXPORTED = "data_exported"
-    OUTREACH_GENERATED = "outreach_generated"
-    COMPLETED = "completed"
+    INITIALIZED = "INITIAL"
+    PARAMETERS_CONFIRMED = "PARAMETERS_CONFIRMED"
+    BUSINESSES_DISCOVERED = "BUSINESSES_DISCOVERED"
+    WEBSITES_SCORED = "WEBSITES_SCORED"
+    DEMOS_GENERATED = "DEMOS_GENERATED"
+    DATA_EXPORTED = "DATA_EXPORTED"
+    OUTREACH_GENERATED = "OUTREACH_GENERATED"
+    COMPLETED = "COMPLETED"
 
 
 class ConfirmationType(Enum):
@@ -53,6 +53,8 @@ class WorkflowState:
     warnings: List[str] = None
     created_at: datetime = None
     last_updated: datetime = None
+    started_at: Optional[datetime] = None
+    total_time_seconds: Optional[int] = None
     
     def __post_init__(self):
         if self.discovered_businesses is None:
@@ -71,6 +73,37 @@ class WorkflowState:
             self.created_at = datetime.now()
         if self.last_updated is None:
             self.last_updated = datetime.now()
+        if self.started_at is None:
+            self.started_at = datetime.now()
+    
+    def get_progress_percentage(self) -> int:
+        """Calculate progress percentage based on completed steps"""
+        total_steps = len(WorkflowStep)
+        current_step_index = list(WorkflowStep).index(self.current_step)
+        return min(100, int((current_step_index / (total_steps - 1)) * 100))
+    
+    def get_frontend_workflow_progress(self) -> Dict[str, Any]:
+        """Convert to frontend-compatible workflow progress format"""
+        return {
+            "current_step": self.current_step.value,
+            "progress_percentage": self.get_progress_percentage(),
+            "location": self.location,
+            "niche": self.niche,
+            "businesses_discovered": len(self.discovered_businesses),
+            "businesses_scored": len(self.scored_businesses),
+            "demo_sites_generated": len(self.demo_businesses),
+            "has_exported_data": self.exported_data is not None,
+            "has_outreach": len(self.outreach_businesses) > 0,
+            "pending_confirmation": self.confirmation_type.value if self.confirmation_type else None,
+            "confirmation_message": self.confirmation_message,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "last_updated": self.last_updated.isoformat() if self.last_updated else None,
+            "total_time_seconds": self.total_time_seconds or (
+                int((datetime.now() - self.started_at).total_seconds()) if self.started_at else 0
+            ),
+            "errors": self.errors,
+            "warnings": self.warnings
+        }
 
 
 @dataclass
@@ -98,8 +131,8 @@ class LeadGenContextManager:
     def __init__(self):
         self.workflow_states: Dict[str, WorkflowState] = {}
         self.message_histories: Dict[str, List[MessageHistory]] = {}
-        self.session_timeout = timedelta(hours=24)  # 24 hour session timeout
-        
+        self.session_timeout = timedelta(hours=24)  # 24 hour timeout
+    
     def get_or_create_workflow_state(self, session_id: str) -> WorkflowState:
         """Get existing workflow state or create a new one"""
         
@@ -109,8 +142,12 @@ class LeadGenContextManager:
         
         return self.workflow_states[session_id]
     
+    def get_workflow_state(self, session_id: str) -> Optional[WorkflowState]:
+        """Get existing workflow state if it exists"""
+        return self.workflow_states.get(session_id)
+    
     def update_workflow_state(self, session_id: str, updates: Dict[str, Any]):
-        """Update workflow state with new information"""
+        """Update workflow state with new data"""
         
         if session_id not in self.workflow_states:
             logger.warning(f"⚠️ Attempted to update non-existent session {session_id}")
@@ -118,11 +155,10 @@ class LeadGenContextManager:
         
         workflow_state = self.workflow_states[session_id]
         
-        # Update fields
+        # Update fields that exist in the WorkflowState
         for key, value in updates.items():
             if hasattr(workflow_state, key):
                 setattr(workflow_state, key, value)
-                logger.info(f"🔄 Updated {key} for session {session_id}: {value}")
             else:
                 logger.warning(f"⚠️ Unknown field {key} for workflow state")
         
@@ -199,6 +235,28 @@ class LeadGenContextManager:
         
         logger.info(f"⏳ Set pending confirmation for session {session_id}: {confirmation_type.value}")
     
+    def clear_pending_confirmation(self, session_id: str):
+        """Clear a pending confirmation without resolving it"""
+        
+        if session_id not in self.workflow_states:
+            logger.warning(f"⚠️ Attempted to clear confirmation for non-existent session {session_id}")
+            return
+        
+        workflow_state = self.workflow_states[session_id]
+        
+        if not workflow_state.pending_confirmation:
+            logger.warning(f"⚠️ No pending confirmation for session {session_id}")
+            return
+        
+        # Clear confirmation state
+        workflow_state.pending_confirmation = False
+        workflow_state.confirmation_type = None
+        workflow_state.confirmation_message = None
+        workflow_state.pending_action = None
+        workflow_state.last_updated = datetime.now()
+        
+        logger.info(f"🧹 Cleared pending confirmation for session {session_id}")
+    
     def resolve_confirmation(self, session_id: str, confirmed: bool) -> Optional[Dict[str, Any]]:
         """Resolve a pending confirmation"""
         
@@ -268,24 +326,8 @@ class LeadGenContextManager:
         
         workflow_state = self.workflow_states[session_id]
         
-        return {
-            "session_id": session_id,
-            "current_step": workflow_state.current_step.value,
-            "step_progress": self._calculate_step_progress(workflow_state),
-            "location": workflow_state.location,
-            "niche": workflow_state.niche,
-            "business_count": len(workflow_state.discovered_businesses),
-            "scored_count": len(workflow_state.scored_businesses),
-            "demo_count": len(workflow_state.demo_businesses),
-            "outreach_count": len(workflow_state.outreach_businesses),
-            "has_exported_data": workflow_state.exported_data is not None,
-            "pending_confirmation": workflow_state.pending_confirmation,
-            "confirmation_type": workflow_state.confirmation_type.value if workflow_state.confirmation_type else None,
-            "error_count": len(workflow_state.errors),
-            "warning_count": len(workflow_state.warnings),
-            "session_age": (datetime.now() - workflow_state.created_at).total_seconds(),
-            "last_updated": workflow_state.last_updated.isoformat()
-        }
+        # Use the new frontend-compatible format
+        return workflow_state.get_frontend_workflow_progress()
     
     def get_next_recommended_action(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get the next recommended action based on current workflow state"""
@@ -354,32 +396,10 @@ class LeadGenContextManager:
         elif workflow_state.current_step == WorkflowStep.OUTREACH_GENERATED:
             return {
                 "type": "workflow_completion",
-                "message": "Lead generation workflow completed successfully!"
+                "message": "All tasks completed successfully!"
             }
         
         return None
-    
-    def _calculate_step_progress(self, workflow_state: WorkflowState) -> Dict[str, Any]:
-        """Calculate progress through the workflow steps"""
-        
-        total_steps = len(WorkflowStep)
-        current_step_index = list(WorkflowStep).index(workflow_state.current_step)
-        
-        # Calculate percentage
-        progress_percentage = (current_step_index / (total_steps - 1)) * 100
-        
-        # Get completed and remaining steps
-        all_steps = list(WorkflowStep)
-        completed_steps = all_steps[:current_step_index + 1]
-        remaining_steps = all_steps[current_step_index + 1:]
-        
-        return {
-            "percentage": round(progress_percentage, 1),
-            "current_step": workflow_state.current_step.value,
-            "completed_steps": [step.value for step in completed_steps],
-            "remaining_steps": [step.value for step in remaining_steps],
-            "total_steps": total_steps
-        }
     
     def export_workflow_state(self, session_id: str) -> Dict[str, Any]:
         """Export complete workflow state for debugging or analysis"""
@@ -455,11 +475,10 @@ class LeadGenContextManager:
         
         return {
             "session_id": session_id,
+            "current_step": workflow_state.current_step.value,
+            "progress_percentage": workflow_state.get_progress_percentage(),
+            "message_count": len(message_history),
             "created_at": workflow_state.created_at.isoformat(),
             "last_updated": workflow_state.last_updated.isoformat(),
-            "current_step": workflow_state.current_step.value,
-            "message_count": len(message_history),
-            "business_count": len(workflow_state.discovered_businesses),
-            "error_count": len(workflow_state.errors),
-            "warning_count": len(workflow_state.warnings)
+            "total_time_seconds": workflow_state.total_time_seconds or 0
         }

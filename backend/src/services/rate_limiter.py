@@ -56,14 +56,14 @@ class RateLimiter(BaseService):
             "requests": [],
             "last_reset": time.time(),
         }
-        self._rate_limits["fallback"] = {
-            "limit": self.api_config.FALLBACK_RATE_LIMIT_PER_MINUTE,
+        self._rate_limits["validation"] = {
+            "limit": self.api_config.VALIDATION_RATE_LIMIT_PER_MINUTE,
             "window": 60,  # seconds
             "requests": [],
             "last_reset": time.time(),
         }
-        self._rate_limits["validation"] = {
-            "limit": 100,  # 100 validation requests per minute
+        self._rate_limits["fallback"] = {
+            "limit": self.api_config.FALLBACK_RATE_LIMIT_PER_MINUTE,
             "window": 60,  # seconds
             "requests": [],
             "last_reset": time.time(),

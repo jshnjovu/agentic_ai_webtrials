@@ -14,7 +14,7 @@ from src.services.fallback_scoring_service import (
     FallbackDecision
 )
 from src.schemas.website_scoring import (
-    FallbackScore, FallbackReason, FallbackQuality, FallbackMetrics, ConfidenceLevel
+    FallbackScore, FallbackReason, FallbackReasonDetails, FallbackQuality, FallbackQualityDetails, FallbackMetrics, ConfidenceLevel
 )
 
 
@@ -256,10 +256,10 @@ class TestFallbackScoringService:
         )
         
         assert isinstance(fallback_score, FallbackScore)
-        assert fallback_score.trust_score == 85.0
-        assert fallback_score.overall_score == 73.6
+        assert fallback_score.fallback_scores["trust_score"] == 85.0
+        assert fallback_score.fallback_scores["overall_score"] == 73.6
         assert fallback_score.confidence_level == ConfidenceLevel.LOW
-        assert fallback_score.fallback_reason == fallback_reason
+        assert fallback_score.fallback_reason == FallbackReason.TIMEOUT
     
     def test_create_fallback_score_missing_data(self, service):
         """Test fallback score creation with missing data."""
@@ -276,9 +276,9 @@ class TestFallbackScoringService:
             incomplete_result, fallback_reason, "run123"
         )
         
-        assert fallback_score.trust_score == 85.0
-        assert fallback_score.cro_score == 0.0  # Default value
-        assert fallback_score.overall_score == 0.0  # Default value
+        assert fallback_score.fallback_scores["trust_score"] == 85.0
+        assert fallback_score.fallback_scores["cro_score"] == 0.0  # Default value
+        assert fallback_score.fallback_scores["overall_score"] == 0.0  # Default value
     
     def test_create_fallback_reason_success(self, service):
         """Test successful fallback reason creation."""
@@ -292,7 +292,7 @@ class TestFallbackScoringService:
             "Request timed out", failure_analysis, 2, True
         )
         
-        assert isinstance(fallback_reason, FallbackReason)
+        assert isinstance(fallback_reason, FallbackReasonDetails)
         assert fallback_reason.failure_type == "TIMEOUT"
         assert fallback_reason.severity_level == "medium"
         assert fallback_reason.fallback_decision == "retry_then_fallback"
@@ -303,9 +303,9 @@ class TestFallbackScoringService:
         """Test data completeness calculation with high completeness."""
         completeness = service._calculate_data_completeness(mock_heuristic_result)
     
-        # Should be moderately high (68.42% based on mock data)
-        assert completeness > 65.0
-        assert completeness < 70.0
+        # Should be moderately high (0.6842 based on mock data)
+        assert completeness > 0.65
+        assert completeness < 0.70
     
     def test_calculate_data_completeness_low(self, service):
         """Test data completeness calculation with low completeness."""
@@ -346,15 +346,35 @@ class TestFallbackScoringService:
     def test_determine_quality_indicators(self, service, mock_heuristic_result):
         """Test quality indicators determination."""
         fallback_score = FallbackScore(
-            trust_score=85.0,
-            cro_score=72.0,
-            mobile_score=68.0,
-            content_score=78.0,
-            social_score=65.0,
-            overall_score=73.6,
+            business_id="test_business",
+            run_id="test_run",
+            website_url="https://example.com",
+            fallback_timestamp=time.time(),
+            fallback_reason=FallbackReason.TIMEOUT,
+            fallback_scores={
+                "trust_score": 85.0,
+                "cro_score": 72.0,
+                "mobile_score": 68.0,
+                "content_score": 78.0,
+                "social_score": 65.0,
+                "overall_score": 73.6
+            },
+            quality_metrics=FallbackMetrics(
+                data_completeness=0.8,
+                source_reliability=0.7,
+                confidence_score=0.6,
+                fallback_reason=FallbackReason.TIMEOUT,
+                quality_rating=FallbackQuality.FAIR,
+                fallback_success_rate=75.0,
+                average_fallback_score_quality=70.0,
+                failure_pattern_analysis={"TIMEOUT": 1},
+                performance_metrics={"execution_time": 2.5},
+                total_fallbacks=1,
+                successful_fallbacks=1
+            ),
             confidence_level=ConfidenceLevel.LOW,
-            fallback_reason="Request timed out",
-            fallback_timestamp=time.time()
+            notes="Test fallback score",
+            fallback_history=[]
         )
         
         failure_analysis = {
@@ -460,19 +480,39 @@ class TestFallbackScoringService:
         mock_run_heuristic.return_value = mock_heuristic_result
         
         mock_fallback_score = FallbackScore(
-            trust_score=85.0,
-            cro_score=72.0,
-            mobile_score=68.0,
-            content_score=78.0,
-            social_score=65.0,
-            overall_score=73.6,
+            business_id="business123",
+            run_id="run123",
+            website_url="https://example.com",
+            fallback_timestamp=time.time(),
+            fallback_reason=FallbackReason.TIMEOUT,
+            fallback_scores={
+                "trust_score": 85.0,
+                "cro_score": 72.0,
+                "mobile_score": 68.0,
+                "content_score": 78.0,
+                "social_score": 65.0,
+                "overall_score": 73.6
+            },
+            quality_metrics=FallbackMetrics(
+                data_completeness=0.8,
+                source_reliability=0.7,
+                confidence_score=0.6,
+                fallback_reason=FallbackReason.TIMEOUT,
+                quality_rating=FallbackQuality.FAIR,
+                fallback_success_rate=75.0,
+                average_fallback_score_quality=70.0,
+                failure_pattern_analysis={"TIMEOUT": 1},
+                performance_metrics={"execution_time": 2.5},
+                total_fallbacks=1,
+                successful_fallbacks=1
+            ),
             confidence_level=ConfidenceLevel.LOW,
-            fallback_reason="Request timed out",
-            fallback_timestamp=time.time()
+            notes="Test fallback score",
+            fallback_history=[]
         )
         mock_create_score.return_value = mock_fallback_score
         
-        mock_fallback_reason = FallbackReason(
+        mock_fallback_reason = FallbackReasonDetails(
             failure_type="TIMEOUT",
             error_message="Request timed out",
             severity_level="medium",
@@ -483,7 +523,7 @@ class TestFallbackScoringService:
         )
         mock_create_reason.return_value = mock_fallback_reason
         
-        mock_fallback_quality = FallbackQuality(
+        mock_fallback_quality = FallbackQualityDetails(
             reliability_score=75.0,
             data_completeness=85.0,
             confidence_adjustment=0.7,

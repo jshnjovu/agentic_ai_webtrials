@@ -2,7 +2,7 @@
 Business data merging and prioritization schemas.
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any, Union
 from enum import Enum
 from .business_matching import BusinessSourceData, BusinessLocation, BusinessContactInfo, ConfidenceLevel
@@ -20,7 +20,7 @@ class DataCompletenessScore(BaseModel):
     category_score: float = Field(..., description="Category completeness score (0.0 to 1.0)", ge=0.0, le=1.0)
     details: Dict[str, float] = Field(default_factory=dict, description="Detailed scoring breakdown")
     
-    @validator('overall_score', 'name_score', 'location_score', 'contact_score', 'rating_score', 'category_score')
+    @field_validator('overall_score', 'name_score', 'location_score', 'contact_score', 'rating_score', 'category_score')
     @classmethod
     def validate_score(cls, v):
         if v < 0.0 or v > 1.0:
@@ -47,11 +47,11 @@ class MergedBusinessData(BaseModel):
     last_updated: str = Field(..., description="Last update timestamp")
     needs_review: bool = Field(default=False, description="Whether this merged record needs manual review")
     
-    @validator('rating')
+    @field_validator('rating')
     @classmethod
     def validate_rating(cls, v):
         if v is not None and (v < 0.0 or v > 5.0):
-            raise ValueError('Rating must be between 0.0 and 1.0')
+            raise ValueError('Rating must be between 0.0 and 5.0')
         return v
 
 
@@ -64,7 +64,7 @@ class MergeConflict(BaseModel):
     resolved_value: Any = Field(..., description="Final resolved value")
     confidence: float = Field(..., description="Confidence in the resolution (0.0 to 1.0)", ge=0.0, le=1.0)
     
-    @validator('confidence')
+    @field_validator('confidence')
     @classmethod
     def validate_confidence(cls, v):
         if v < 0.0 or v > 1.0:

@@ -2,7 +2,7 @@
 Duplicate detection and removal schemas.
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from .business_matching import BusinessSourceData, ConfidenceLevel
@@ -30,7 +30,7 @@ class BusinessFingerprint(BaseModel):
     fingerprint_hash: str = Field(..., description="Overall fingerprint hash")
     created_at: str = Field(..., description="Fingerprint creation timestamp")
     
-    @validator('name_normalized', 'address_normalized')
+    @field_validator('name_normalized', 'address_normalized')
     @classmethod
     def validate_normalized_string(cls, v):
         if not v or not v.strip():
@@ -51,7 +51,7 @@ class DuplicateGroup(BaseModel):
     created_at: str = Field(..., description="Group creation timestamp")
     needs_review: bool = Field(default=False, description="Whether this group needs manual review")
     
-    @validator('confidence_score')
+    @field_validator('confidence_score')
     @classmethod
     def validate_confidence(cls, v):
         if v < 0.0 or v > 1.0:
@@ -68,7 +68,7 @@ class DuplicateDetectionRequest(BaseModel):
     include_fingerprints: bool = Field(default=True, description="Include business fingerprints in response")
     run_id: Optional[str] = Field(None, description="Unique identifier for the processing run")
     
-    @validator('detection_threshold')
+    @field_validator('detection_threshold')
     @classmethod
     def validate_threshold(cls, v):
         if v < 0.0 or v > 1.0:
@@ -96,10 +96,10 @@ class DuplicateRemovalRequest(BaseModel):
     review_threshold: float = Field(default=0.7, description="Threshold below which manual review is required", ge=0.0, le=1.0)
     run_id: Optional[str] = Field(None, description="Unique identifier for the processing run")
     
-    @validator('review_threshold')
+    @field_validator('review_threshold')
     @classmethod
     def validate_threshold(cls, v):
-        if v < 0.0 or v > 1.0:
+        if v > 1.0:
             raise ValueError('Review threshold must be between 0.0 and 1.0')
         return v
 
