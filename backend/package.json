@@ -1,15 +1,19 @@
 {
   "name": "leadgen-makeover-agent-backend",
   "version": "1.0.0",
-  "description": "Backend API for LeadGen Makeover Agent with Lighthouse integration",
+  "description": "Backend API for LeadGen Makeover Agent with Lighthouse CLI integration",
   "scripts": {
     "lighthouse:ci": "lhci autorun",
     "lighthouse:collect": "lhci collect",
     "lighthouse:assert": "lhci assert",
-    "lighthouse:upload": "lhci upload"
+    "lighthouse:upload": "lhci upload",
+    "lighthouse:install": "npm install -g lighthouse",
+    "lighthouse:test": "lighthouse --version",
+    "lighthouse:audit": "lighthouse --output=json --output-path=./lighthouse-report.json --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --only-categories=performance,accessibility,best-practices,seo"
   },
   "devDependencies": {
-    "@lhci/cli": "^0.12.0"
+    "@lhci/cli": "^0.12.0",
+    "lighthouse": "^11.6.0"
   },
   "engines": {
     "node": ">=18.0.0"

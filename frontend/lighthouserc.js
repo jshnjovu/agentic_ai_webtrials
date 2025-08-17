@@ -1,7 +1,7 @@
 module.exports = {
   ci: {
     collect: {
-      url: ['http://localhost:3000'], // Default URL for testing
+      url: ['http://localhost:3000'], // Frontend development server
       numberOfRuns: 3, // Multiple runs for more accurate results
       settings: {
         chromeFlags: '--headless --no-sandbox --disable-dev-shm-usage --disable-gpu',

@@ -23,7 +23,7 @@ class TestLighthouseRealAPI:
         self.api_config = get_api_config()
         
         # Check if we have a real API key
-        if not self.api_config.LIGHTHOUSE_API_KEY or self.api_config.LIGHTHOUSE_API_KEY == "c76e3daa.c159a1e6667343628e8f94366b91f745":
+        if not self.api_config.LIGHTHOUSE_API_KEY:
             pytest.skip("Real Lighthouse API key not configured")
         
         # Test URLs that are reliable for testing
