@@ -13,14 +13,14 @@ from src.schemas.yelp_fusion import (
     YelpBusinessSearchRequest, YelpBusinessSearchResponse, YelpBusinessSearchError,
     YelpLocationType
 )
-from src.services import GooglePlacesService, YelpFusionService
+from src.services import GooglePlacesService, YelpFusionService, BusinessSearchFallbackService
 
 router = APIRouter(prefix="/business-search", tags=["business-search"])
 
 
-def get_google_places_service() -> GooglePlacesService:
-    """Dependency to get Google Places service instance."""
-    return GooglePlacesService()
+def get_business_search_service() -> BusinessSearchFallbackService:
+    """Dependency to get business search service with automatic fallback."""
+    return BusinessSearchFallbackService()
 
 
 def get_yelp_fusion_service() -> YelpFusionService:
@@ -28,17 +28,22 @@ def get_yelp_fusion_service() -> YelpFusionService:
     return YelpFusionService()
 
 
+def get_google_places_service() -> GooglePlacesService:
+    """Dependency to get Google Places service instance."""
+    return GooglePlacesService()
+
+
 @router.post("/google-places/search", response_model=BusinessSearchResponse)
 async def search_businesses(
     request: BusinessSearchRequest,
-    service: GooglePlacesService = Depends(get_google_places_service)
+    service: BusinessSearchFallbackService = Depends(get_business_search_service)
 ) -> BusinessSearchResponse:
     """
-    Search for businesses using Google Places API.
+    Search for businesses using Google Places API with automatic fallback.
     
     Args:
         request: Business search request with query, location, and filters
-        service: Google Places service instance
+        service: Business search service with automatic fallback
         
     Returns:
         Business search response with results
@@ -58,8 +63,8 @@ async def search_businesses(
                 detail="Invalid business search request"
             )
         
-        # Execute search
-        result = service.search_businesses(request)
+        # Execute search with automatic fallback
+        result = service.search_businesses_with_fallback(request)
         
         # Handle error responses
         if isinstance(result, BusinessSearchError):
@@ -95,7 +100,7 @@ async def search_businesses_get(
     radius: Optional[int] = Query(default=5000, description="Search radius in meters (max 50000)", ge=100, le=50000),
     max_results: Optional[int] = Query(default=10, description="Maximum number of results to return", ge=1, le=20),
     run_id: Optional[str] = Query(None, description="Unique identifier for the processing run"),
-    service: GooglePlacesService = Depends(get_google_places_service)
+    service: BusinessSearchFallbackService = Depends(get_business_search_service)
 ) -> BusinessSearchResponse:
     """
     Search for businesses using Google Places API (GET endpoint).
@@ -139,8 +144,8 @@ async def search_businesses_get(
                 detail="Invalid business search request"
             )
         
-        # Execute search
-        result = service.search_businesses(request)
+        # Execute search with automatic fallback
+        result = service.search_businesses_with_fallback(request)
         
         # Handle error responses
         if isinstance(result, BusinessSearchError):

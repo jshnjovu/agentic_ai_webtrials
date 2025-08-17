@@ -16,7 +16,7 @@ class GooglePlacesAuthService(BaseService):
         super().__init__("GooglePlacesAuthService")
         self.api_config = get_api_config()
         self.rate_limiter = RateLimiter()
-        self.base_url = "https://maps.googleapis.com/maps/api/place"
+        self.base_url = "https://places.googleapis.com/v1"
         self.api_key = self.api_config.GOOGLE_PLACES_API_KEY
     
     def validate_input(self, data: any) -> bool:

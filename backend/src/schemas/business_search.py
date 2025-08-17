@@ -59,6 +59,7 @@ class BusinessData(BaseModel):
     opening_hours: Optional[Dict[str, Any]] = Field(None, description="Business hours information")
     photos: Optional[List[Dict[str, Any]]] = Field(None, description="Business photos information")
     reviews: Optional[List[Dict[str, Any]]] = Field(None, description="Business reviews information")
+    confidence_level: Optional[str] = Field(None, description="Data quality confidence level (high/medium/low)")
 
 
 class BusinessSearchResponse(BaseModel):

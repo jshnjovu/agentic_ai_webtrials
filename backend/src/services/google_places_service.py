@@ -22,7 +22,7 @@ class GooglePlacesService(BaseService):
         super().__init__("GooglePlacesService")
         self.api_config = get_api_config()
         self.rate_limiter = RateLimiter()
-        self.base_url = "https://maps.googleapis.com/maps/api/place"
+        self.base_url = "https://places.googleapis.com/v1"
         self.api_key = self.api_config.GOOGLE_PLACES_API_KEY
         self.max_results_per_request = 20  # Google Places API limit
     
@@ -174,7 +174,7 @@ class GooglePlacesService(BaseService):
     
     def _build_search_params(self, request: BusinessSearchRequest, location_info: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Build search parameters for Google Places API.
+        Build search parameters for Google Places API (New).
         
         Args:
             request: Business search request
@@ -183,24 +183,31 @@ class GooglePlacesService(BaseService):
         Returns:
             Dictionary of API search parameters
         """
+        # Build the text query
+        if location_info["type"] == "coordinates":
+            query_text = f"{request.query} near {location_info['coordinates']}"
+        elif location_info["type"] == "zip_code":
+            query_text = f"{request.query} in {location_info['zip_code']}"
+        else:  # city or address
+            query_text = f"{request.query} in {location_info['text']}"
+        
         params = {
-            "query": request.query,
-            "key": self.api_key,
-            "maxresults": min(request.max_results, self.max_results_per_request)
+            "textQuery": query_text,
+            "maxResultCount": min(request.max_results, self.max_results_per_request)
         }
         
-        # Add location parameter based on type
+        # Add location bias if coordinates are available
         if location_info["type"] == "coordinates":
-            params["location"] = location_info["coordinates"]
-            params["radius"] = request.radius
-        elif location_info["type"] == "zip_code":
-            params["query"] = f"{request.query} in {location_info['zip_code']}"
-        else:  # city or address
-            params["query"] = f"{request.query} in {location_info['text']}"
+            params["locationBias"] = {
+                "circle": {
+                    "center": location_info["coordinates"],
+                    "radius": request.radius
+                }
+            }
         
         # Add category filter if specified
         if request.category:
-            params["type"] = request.category
+            params["includedTypes"] = [request.category]
         
         return params
     
@@ -216,40 +223,37 @@ class GooglePlacesService(BaseService):
             Dictionary with search results or error information
         """
         try:
-            search_url = f"{self.base_url}/textsearch/json"
+            search_url = f"{self.base_url}/places:searchText"
             
             with httpx.Client(timeout=self.api_config.API_TIMEOUT_SECONDS) as client:
-                response = client.get(search_url, params=search_params)
+                response = client.post(search_url, json=search_params, headers={"X-Goog-Api-Key": self.api_key})
                 
                 # Record the request for rate limiting
                 self.rate_limiter.record_request("google_places", response.status_code == 200, run_id)
                 
                 if response.status_code == 200:
                     result = response.json()
-                    api_status = result.get("status")
                     
-                    if api_status == "OK":
+                    # New Places API returns results directly or empty array
+                    if "places" in result and result["places"]:
                         return {
                             "success": True,
-                            "results": result.get("results", []),
-                            "next_page_token": result.get("next_page_token"),
-                            "api_status": api_status
+                            "results": result.get("places", []),
+                            "next_page_token": result.get("nextPageToken"),
+                            "api_status": "OK"
                         }
-                    elif api_status == "ZERO_RESULTS":
+                    elif "places" in result and not result["places"]:
                         return {
                             "success": True,
                             "results": [],
-                            "api_status": api_status
+                            "api_status": "ZERO_RESULTS"
                         }
                     else:
-                        error_msg = f"API returned status: {api_status}"
-                        if result.get("error_message"):
-                            error_msg += f" - {result['error_message']}"
-                        
+                        error_msg = "API returned unexpected response format"
                         return {
                             "success": False,
                             "error": error_msg,
-                            "error_code": api_status,
+                            "error_code": "INVALID_RESPONSE",
                             "details": {"api_response": result}
                         }
                 else:
@@ -296,20 +300,20 @@ class GooglePlacesService(BaseService):
             for raw_business in raw_results[:max_results]:
                 try:
                     business = BusinessData(
-                        place_id=raw_business.get("place_id", ""),
-                        name=raw_business.get("name", ""),
-                        address=raw_business.get("formatted_address"),
-                        phone=raw_business.get("formatted_phone_number"),
-                        website=raw_business.get("website"),
-                        rating=raw_business.get("rating"),
-                        user_ratings_total=raw_business.get("user_ratings_total"),
-                        price_level=raw_business.get("price_level"),
-                        types=raw_business.get("types", []),
-                        geometry=raw_business.get("geometry"),
-                        formatted_address=raw_business.get("formatted_address"),
-                        international_phone_number=raw_business.get("international_phone_number"),
-                        opening_hours=raw_business.get("opening_hours"),
-                        photos=raw_business.get("photos"),
+                        place_id=raw_business.get("id", ""),  # New API uses "id" instead of "place_id"
+                        name=raw_business.get("displayName", {}).get("text", ""),  # New API structure
+                        address=raw_business.get("formattedAddress", ""),  # New API field
+                        phone=raw_business.get("internationalPhoneNumber", ""),  # New API field
+                        website=raw_business.get("websiteUri", ""),  # New API field
+                        rating=raw_business.get("rating", 0.0),  # May not be available in basic search
+                        user_ratings_total=raw_business.get("userRatingCount", 0),  # New API field
+                        price_level=raw_business.get("priceLevel", 0),  # New API field
+                        types=raw_business.get("types", []),  # New API field
+                        geometry=raw_business.get("location", {}),  # New API structure
+                        formatted_address=raw_business.get("formattedAddress", ""),  # New API field
+                        international_phone_number=raw_business.get("internationalPhoneNumber", ""),  # New API field
+                        opening_hours=raw_business.get("currentOpeningHours", {}),  # New API field
+                        photos=raw_business.get("photos", []),  # New API field
                         reviews=raw_business.get("reviews")
                     )
                     businesses.append(business)

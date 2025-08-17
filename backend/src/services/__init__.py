@@ -14,6 +14,7 @@ from .business_merging_service import BusinessMergingService
 from .duplicate_detection_service import DuplicateDetectionService
 from .confidence_scoring_service import ConfidenceScoringService
 from .review_management_service import ReviewManagementService
+from .business_search_fallback_service import BusinessSearchFallbackService
 
 __all__ = [
     'RateLimiter',
@@ -27,5 +28,6 @@ __all__ = [
     'BusinessMergingService',
     'DuplicateDetectionService',
     'ConfidenceScoringService',
-    'ReviewManagementService'
+    'ReviewManagementService',
+    'BusinessSearchFallbackService'
 ]
