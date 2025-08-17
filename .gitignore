@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -29,6 +30,7 @@ coverage.xml
 .env.test.local
 .env.production.local
 backend/.env
+backend/env.local
 
 # IDE and editor files
 .vscode/
@@ -51,10 +53,19 @@ dist/
 build/
 *.egg-info/
 *.egg
+.next/
+generated_sites/
+
+# Deployment and infrastructure
+.vercel/
+backend/.vercel/
 
 # Temporary files
 *.tmp
 *.temp
+
+# Documentation and temporary files
+frontend_urls.md
 
 # Files from .ignore folder
 .ignore/architecture.md
