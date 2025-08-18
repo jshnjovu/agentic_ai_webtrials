@@ -312,7 +312,7 @@ async def search_businesses_get(
 
 
 @router.get("/google-places/next-page")
-async def get_next_page(
+async def get_google_places_next_page(
     next_page_token: str = Query(..., description="Token for next page from previous search"),
     run_id: Optional[str] = Query(None, description="Unique identifier for the processing run"),
     service: SerpAPIService = Depends(get_serpapi_service)
@@ -372,6 +372,47 @@ async def get_next_page(
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error during pagination: {str(e)}"
+        )
+
+
+@router.get("/serpapi/next-page")
+async def get_serpapi_next_page(
+    next_page_token: str = Query(..., description="Token for next page from previous search"),
+    run_id: Optional[str] = Query(None, description="Unique identifier for the processing run"),
+    service: SerpAPIService = Depends(get_serpapi_service)
+):
+    """
+    Get next page of results for SerpAPI search.
+    
+    Args:
+        next_page_token: Token for next page from previous search
+        run_id: Optional run identifier
+        service: SerpAPI service instance
+        
+    Returns:
+        Next page of business search results
+        
+    Raises:
+        HTTPException: If next page retrieval fails
+    """
+    try:
+        # Generate run_id if not provided
+        if not run_id:
+            run_id = str(uuid.uuid4())
+        
+        # For now, return a placeholder response since SerpAPI doesn't have next-page tokens
+        # This endpoint is kept for compatibility but will need to be implemented differently
+        raise HTTPException(
+            status_code=501,
+            detail="Next page functionality not yet implemented for SerpAPI"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error during next page retrieval: {str(e)}"
         )
 
 
@@ -593,6 +634,7 @@ async def health_check(
                 "service": "SerpAPIService",
                 "message": "Service is operational",
                 "capabilities": [
+                    "serpapi_business_search",
                     "business_search",
                     "location_validation",
                     "pagination",

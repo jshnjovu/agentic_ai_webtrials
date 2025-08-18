@@ -66,6 +66,9 @@ class APIConfig(BaseSettings):
     # Google PageSpeed API Configuration
     GOOGLE_GENERAL_API_KEY: Optional[str] = None
     
+    # Geoapify Configuration
+    GEOAPIFY_API_KEY: Optional[str] = None
+    
     # Rate Limiting Configuration
     SERPAPI_RATE_LIMIT_PER_MINUTE: int = 100
     GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE: int = 100
@@ -133,6 +136,18 @@ class APIConfig(BaseSettings):
                 return None
             if v in ['your_google_general_api_key_here', 'test_key', 'test']:
                 logger.warning("Using placeholder Google General API key")
+                return v
+        return v
+    
+    @field_validator('GEOAPIFY_API_KEY')
+    @classmethod
+    def validate_geoapify_key(cls, v):
+        if v is not None and isinstance(v, str):
+            v = v.strip()
+            if len(v) == 0:
+                return None
+            if v in ['your_geoapify_api_key_here', 'test_key', 'test']:
+                logger.warning("Using placeholder Geoapify API key")
                 return v
         return v
     

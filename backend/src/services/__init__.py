@@ -5,6 +5,7 @@ Business logic services
 from .rate_limiter import RateLimiter
 from .rate_limit_monitor import RateLimitMonitor
 from .serpapi_service import SerpAPIService
+from .geoapify_service import GeoapifyService
 from .google_places_auth_service import GooglePlacesAuthService
 from .yelp_fusion_auth_service import YelpFusionAuthService
 from .google_places_service import GooglePlacesService
@@ -22,6 +23,7 @@ __all__ = [
     'RateLimiter',
     'RateLimitMonitor',
     'SerpAPIService',
+    'GeoapifyService',
     'GooglePlacesAuthService',
     'YelpFusionAuthService', 
     'GooglePlacesService',

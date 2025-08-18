@@ -13,6 +13,7 @@ class BaseService(ABC):
     
     def __init__(self, service_name: str):
         self.service_name = service_name
+        self.name = service_name  # Add alias for backward compatibility
         self.logger = self._setup_logger()
     
     def _setup_logger(self) -> logging.Logger:

@@ -8,7 +8,8 @@ import re
 from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import quote_plus
 from src.core import BaseService, get_api_config
-from src.services import RateLimiter
+from src.services.rate_limiter import RateLimiter
+from src.services.geoapify_service import GeoapifyService
 from src.schemas import (
     BusinessSearchRequest, BusinessData, BusinessSearchResponse, 
     BusinessSearchError, LocationType
@@ -22,6 +23,7 @@ class SerpAPIService(BaseService):
         super().__init__("SerpAPIService")
         self.api_config = get_api_config()
         self.rate_limiter = RateLimiter()
+        self.geoapify_service = GeoapifyService()
         self.base_url = "https://serpapi.com/search.json"
         self.api_key = self.api_config.SERPAPI_API_KEY
         self.max_results_per_request = 20
@@ -98,23 +100,31 @@ class SerpAPIService(BaseService):
             )
     
     def _build_search_params(self, request: BusinessSearchRequest) -> Dict[str, Any]:
-        """Build SerpAPI search parameters."""
+        """Build SerpAPI search parameters - exactly matching SERPAPI.md pattern."""
+        # Extract country code from location using Geoapify
+        country_code = self.geoapify_service.extract_country_code(request.location)
+        
+        # Use extracted country code or fallback to "us"
+        gl_param = country_code if country_code else "us"
+        
+        # Build query exactly like SERPAPI.md: "Gym London UK" format
+        query = f"{request.query} {request.location}"
+        
         params = {
-            "q": request.query,
+            "q": query,  # Combined query like "Gym London UK"
             "engine": "google_local",
             "google_domain": "google.com",
             "hl": "en",
-            "gl": "us",  # Use US for richer data including ratings
-            "device": "desktop",
-            "num": min(request.max_results, self.max_results_per_request)
+            "gl": gl_param,  # Dynamic country code from Geoapify
+            "device": "desktop"
         }
-        
-        # Add location
-        params["location"] = request.location
         
         # Add category filter if specified
         if request.category:
-            params["q"] = f"{request.query} {request.category}"
+            params["q"] = f"{request.query} {request.category} {request.location}"
+        
+        # Log the country code being used
+        self.logger.info(f"Using country code '{gl_param}' for location '{request.location}'")
         
         return params
     
@@ -207,7 +217,7 @@ class SerpAPIService(BaseService):
                 processed_businesses.append(business)
                 
             except Exception as e:
-                self.log_error(e, f"processing_business_result_{i}", run_id)
+                self.log_error(e, f"processing_business_resul t_{i}", run_id)
                 continue
         
         return processed_businesses
