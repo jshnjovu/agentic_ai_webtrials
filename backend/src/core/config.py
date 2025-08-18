@@ -63,25 +63,25 @@ class APIConfig(BaseSettings):
     # Yelp Fusion API Configuration  
     YELP_FUSION_API_KEY: Optional[str] = None
     
-    # Lighthouse API Configuration (Google PageSpeed Insights)
-    LIGHTHOUSE_API_KEY: Optional[str] = None
+    # Google PageSpeed API Configuration
+    GOOGLE_GENERAL_API_KEY: Optional[str] = None
     
     # Rate Limiting Configuration
     SERPAPI_RATE_LIMIT_PER_MINUTE: int = 100
     GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE: int = 100
     YELP_FUSION_RATE_LIMIT_PER_DAY: int = 5000
-    LIGHTHOUSE_RATE_LIMIT_PER_DAY: int = 25000
-    LIGHTHOUSE_RATE_LIMIT_PER_MINUTE: int = 240
+    PAGESPEED_RATE_LIMIT_PER_DAY: int = 25000
+    PAGESPEED_RATE_LIMIT_PER_MINUTE: int = 240
     HEURISTICS_RATE_LIMIT_PER_MINUTE: int = 60
     VALIDATION_RATE_LIMIT_PER_MINUTE: int = 120
     FALLBACK_RATE_LIMIT_PER_MINUTE: int = 60
     
     # API Timeout Settings
     API_TIMEOUT_SECONDS: int = 30
-    LIGHTHOUSE_AUDIT_TIMEOUT_SECONDS: int = 30
-    LIGHTHOUSE_CONNECT_TIMEOUT_SECONDS: int = 10
-    LIGHTHOUSE_READ_TIMEOUT_SECONDS: int = 25
-    LIGHTHOUSE_FALLBACK_TIMEOUT_SECONDS: int = 15
+    PAGESPEED_AUDIT_TIMEOUT_SECONDS: int = 30
+    PAGESPEED_CONNECT_TIMEOUT_SECONDS: int = 10
+    PAGESPEED_READ_TIMEOUT_SECONDS: int = 25
+    PAGESPEED_FALLBACK_TIMEOUT_SECONDS: int = 15
     HEURISTICS_EVALUATION_TIMEOUT_SECONDS: int = 15
     
     # Circuit Breaker Configuration
@@ -124,15 +124,15 @@ class APIConfig(BaseSettings):
                 return v
         return v
     
-    @field_validator('LIGHTHOUSE_API_KEY')
+    @field_validator('GOOGLE_GENERAL_API_KEY')
     @classmethod
-    def validate_lighthouse_key(cls, v):
+    def validate_google_general_key(cls, v):
         if v is not None and isinstance(v, str):
             v = v.strip()
             if len(v) == 0:
                 return None
-            if v in ['your_lighthouse_api_key_here', 'test_key', 'test']:
-                logger.warning("Using placeholder Lighthouse API key")
+            if v in ['your_google_general_api_key_here', 'test_key', 'test']:
+                logger.warning("Using placeholder Google General API key")
                 return v
         return v
     
@@ -157,18 +157,18 @@ class APIConfig(BaseSettings):
             raise ValueError('YELP_FUSION_RATE_LIMIT_PER_DAY must be positive')
         return v
     
-    @field_validator('LIGHTHOUSE_RATE_LIMIT_PER_DAY')
+    @field_validator('PAGESPEED_RATE_LIMIT_PER_DAY')
     @classmethod
-    def validate_lighthouse_daily_rate_limit(cls, v):
+    def validate_pagespeed_daily_rate_limit(cls, v):
         if v <= 0:
-            raise ValueError('LIGHTHOUSE_RATE_LIMIT_PER_DAY must be positive')
+            raise ValueError('PAGESPEED_RATE_LIMIT_PER_DAY must be positive')
         return v
     
-    @field_validator('LIGHTHOUSE_RATE_LIMIT_PER_MINUTE')
+    @field_validator('PAGESPEED_RATE_LIMIT_PER_MINUTE')
     @classmethod
-    def validate_lighthouse_minute_rate_limit(cls, v):
+    def validate_pagespeed_minute_rate_limit(cls, v):
         if v <= 0:
-            raise ValueError('LIGHTHOUSE_RATE_LIMIT_PER_MINUTE must be positive')
+            raise ValueError('PAGESPEED_RATE_LIMIT_PER_MINUTE must be positive')
         return v
     
     model_config = ConfigDict(
@@ -189,7 +189,7 @@ class APIConfig(BaseSettings):
         placeholder_values = [
             'your_google_places_api_key_here',
             'your_yelp_fusion_api_key_here', 
-            'your_lighthouse_api_key_here',
+            'your_google_general_api_key_here',
             'test_key',
             'test'
         ]
@@ -209,8 +209,8 @@ class APIConfig(BaseSettings):
         if self.is_api_key_valid('YELP_FUSION_API_KEY'):
             available.append('yelp_fusion')
             
-        if self.is_api_key_valid('LIGHTHOUSE_API_KEY'):
-            available.append('lighthouse')
+        if self.is_api_key_valid('GOOGLE_GENERAL_API_KEY'):
+            available.append('google_pagespeed')
             
         return available
 
@@ -305,22 +305,22 @@ def get_configuration_summary() -> dict:
                 "serpapi_configured": api_config.is_api_key_valid('SERPAPI_API_KEY'),
                 "google_places_configured": api_config.is_api_key_valid('GOOGLE_PLACES_API_KEY'),
                 "yelp_fusion_configured": api_config.is_api_key_valid('YELP_FUSION_API_KEY'),
-                "lighthouse_configured": api_config.is_api_key_valid('LIGHTHOUSE_API_KEY'),
+                "google_pagespeed_configured": api_config.is_api_key_valid('GOOGLE_GENERAL_API_KEY'),
             },
             "rate_limits": {
                 "serpapi_per_minute": api_config.SERPAPI_RATE_LIMIT_PER_MINUTE,
                 "google_places_per_minute": api_config.GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE,
                 "yelp_fusion_per_day": api_config.YELP_FUSION_RATE_LIMIT_PER_DAY,
-                "lighthouse_per_day": api_config.LIGHTHOUSE_RATE_LIMIT_PER_DAY,
-                "lighthouse_per_minute": api_config.LIGHTHOUSE_RATE_LIMIT_PER_MINUTE,
+                "google_pagespeed_per_day": api_config.PAGESPEED_RATE_LIMIT_PER_DAY,
+                "google_pagespeed_per_minute": api_config.PAGESPEED_RATE_LIMIT_PER_MINUTE,
                 "heuristics_per_minute": api_config.HEURISTICS_RATE_LIMIT_PER_MINUTE,
             },
             "timeouts": {
                 "api_timeout": api_config.API_TIMEOUT_SECONDS,
-                "lighthouse_audit": api_config.LIGHTHOUSE_AUDIT_TIMEOUT_SECONDS,
-                "lighthouse_connect": api_config.LIGHTHOUSE_CONNECT_TIMEOUT_SECONDS,
-                "lighthouse_read": api_config.LIGHTHOUSE_READ_TIMEOUT_SECONDS,
-                "lighthouse_fallback": api_config.LIGHTHOUSE_FALLBACK_TIMEOUT_SECONDS,
+                "google_pagespeed_audit": api_config.PAGESPEED_AUDIT_TIMEOUT_SECONDS,
+                "google_pagespeed_connect": api_config.PAGESPEED_CONNECT_TIMEOUT_SECONDS,
+                "google_pagespeed_read": api_config.PAGESPEED_READ_TIMEOUT_SECONDS,
+                "google_pagespeed_fallback": api_config.PAGESPEED_FALLBACK_TIMEOUT_SECONDS,
                 "heuristics_evaluation": api_config.HEURISTICS_EVALUATION_TIMEOUT_SECONDS,
             }
         }

@@ -50,9 +50,15 @@ class RateLimiter(BaseService):
             "requests": [],
             "last_reset": time.time(),
         }
-        self._rate_limits["lighthouse"] = {
-            "limit": self.api_config.LIGHTHOUSE_RATE_LIMIT_PER_MINUTE,
+        self._rate_limits["google_pagespeed"] = {
+            "limit": self.api_config.PAGESPEED_RATE_LIMIT_PER_MINUTE,
             "window": 60,  # seconds
+            "requests": [],
+            "last_reset": time.time(),
+        }
+        self._rate_limits["google_pagespeed_daily"] = {
+            "limit": self.api_config.PAGESPEED_RATE_LIMIT_PER_DAY,
+            "window": 86_400,  # 24 h
             "requests": [],
             "last_reset": time.time(),
         }

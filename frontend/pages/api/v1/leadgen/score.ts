@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+import { runPageSpeedAudit } from '../../../../utils/pagespeed';
 
 export default async function handler(
   req: NextApiRequest,
@@ -42,55 +41,55 @@ export default async function handler(
 
         console.log(`🔍 Scoring website for: ${business.business_name} (${business.website})`);
 
-        // Call backend Lighthouse audit endpoint
-        const lighthouseRequest = {
-          website_url: business.website,
-          business_id: business.place_id,
-          run_id: `score_${Date.now()}_${business.place_id}`,
-          strategy: "desktop", // Default to desktop strategy
-          categories: ["performance", "accessibility", "best-practices", "seo"],
-          throttling: "simulated",
-          max_wait: 30
+        // Use FRONTEND PageSpeed utility with fallback enabled
+        const pagespeedRequest = {
+          websiteUrl: business.website,
+          businessId: business.place_id,
+          runId: `score_${Date.now()}_${business.place_id}`,
+          strategy: "desktop" as const, // Default to desktop strategy
+          enableFallback: true // Enable heuristic fallback when PageSpeed fails
         };
 
-        console.log(`🔍 Backend Lighthouse request:`, lighthouseRequest);
+        console.log(`🚀 Frontend PageSpeed request with fallback:`, pagespeedRequest);
 
-        const scoreResponse = await fetch(`${BACKEND_URL}/api/v1/website-scoring/lighthouse`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(lighthouseRequest),
-        });
-
-        if (!scoreResponse.ok) {
-          const errorData = await scoreResponse.text();
-          console.error(`❌ Lighthouse scoring failed for ${business.business_name}:`, scoreResponse.status, errorData);
+        // Run PageSpeed audit directly in frontend (with fallback)
+        const scoreData = await runPageSpeedAudit(pagespeedRequest);
+        
+        if (!scoreData.success) {
+          console.error(`❌ PageSpeed scoring failed for ${business.business_name}:`, scoreData.error);
           
           scoredBusinesses.push({
             ...business,
             website_score: null,
             scoring_status: 'failed',
-            scoring_error: `Lighthouse API failed: ${scoreResponse.status} - ${errorData}`
+            scoring_error: `PageSpeed audit failed: ${scoreData.error}`
           });
           continue;
         }
 
-        const scoreData = await scoreResponse.json();
-        console.log(`✅ Lighthouse scoring successful for ${business.business_name}:`, scoreData);
+        console.log(`✅ Website scoring successful for ${business.business_name}:`, {
+          overall: scoreData.overallScore,
+          performance: scoreData.scores.performance,
+          accessibility: scoreData.scores.accessibility,
+          bestPractices: scoreData.scores.bestPractices,
+          seo: scoreData.scores.seo,
+          fallbackUsed: scoreData.fallbackUsed || false
+        });
 
-        // Extract relevant scoring data
+        // Extract relevant scoring data from frontend results
         const websiteScore = {
-          overall_score: scoreData.overall_score || 0,
-          performance_score: scoreData.performance_score || 0,
-          accessibility_score: scoreData.accessibility_score || 0,
-          best_practices_score: scoreData.best_practices_score || 0,
-          seo_score: scoreData.seo_score || 0,
-          first_contentful_paint: scoreData.first_contentful_paint || null,
-          largest_contentful_paint: scoreData.largest_contentful_paint || null,
-          cumulative_layout_shift: scoreData.cumulative_layout_shift || null,
-          total_blocking_time: scoreData.total_blocking_time || null,
-          speed_index: scoreData.speed_index || null
+          overall_score: scoreData.overallScore || 0,
+          performance_score: scoreData.scores.performance || 0,
+          accessibility_score: scoreData.scores.accessibility || 0,
+          best_practices_score: scoreData.scores.bestPractices || 0,
+          seo_score: scoreData.scores.seo || 0,
+          first_contentful_paint: scoreData.coreWebVitals.firstContentfulPaint || null,
+          largest_contentful_paint: scoreData.coreWebVitals.largestContentfulPaint || null,
+          cumulative_layout_shift: scoreData.coreWebVitals.cumulativeLayoutShift || null,
+          total_blocking_time: scoreData.coreWebVitals.totalBlockingTime || null,
+          speed_index: scoreData.coreWebVitals.speedIndex || null,
+          scoring_method: scoreData.fallbackUsed ? 'heuristic_fallback' : 'pagespeed',
+          confidence: scoreData.confidence
         };
 
         scoredBusinesses.push({

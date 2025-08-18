@@ -88,24 +88,24 @@ class FallbackScoringService(BaseService):
         if not isinstance(data, dict):
             return False
         
-        required_fields = ['website_url', 'business_id', 'lighthouse_failure_reason']
+        required_fields = ['website_url', 'business_id', 'pagespeed_failure_reason']
         return all(field in data for field in required_fields)
     
     def run_fallback_scoring(
         self,
         website_url: str,
         business_id: str,
-        lighthouse_failure_reason: str,
+        pagespeed_failure_reason: str,
         run_id: Optional[str] = None,
         fallback_parameters: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Run fallback scoring when Lighthouse fails.
+        Run fallback scoring when PageSpeed fails.
         
         Args:
             website_url: URL of the website to score
             business_id: Business identifier for tracking
-            lighthouse_failure_reason: Reason why Lighthouse failed
+            pagespeed_failure_reason: Reason why PageSpeed failed
             run_id: Run identifier for tracking
             fallback_parameters: Additional fallback parameters
             
@@ -120,7 +120,7 @@ class FallbackScoringService(BaseService):
                 run_id=run_id,
                 business_id=business_id,
                 website_url=website_url,
-                failure_reason=lighthouse_failure_reason
+                failure_reason=pagespeed_failure_reason
             )
             
             # Check rate limiting
@@ -135,7 +135,7 @@ class FallbackScoringService(BaseService):
                 )
             
             # Analyze failure and determine fallback strategy
-            failure_analysis = self._analyze_failure(lighthouse_failure_reason)
+            failure_analysis = self._analyze_failure(pagespeed_failure_reason)
             
             # Execute fallback strategy
             if failure_analysis["decision"] == FallbackDecision.NO_FALLBACK:
@@ -170,12 +170,12 @@ class FallbackScoringService(BaseService):
             
             # Create fallback score with reduced confidence
             fallback_score = self._create_fallback_score(
-                heuristic_result, lighthouse_failure_reason, run_id, business_id, website_url
+                heuristic_result, pagespeed_failure_reason, run_id, business_id, website_url
             )
             
             # Create fallback reason tracking
             fallback_reason = self._create_fallback_reason(
-                lighthouse_failure_reason, failure_analysis, retry_attempts, True
+                pagespeed_failure_reason, failure_analysis, retry_attempts, True
             )
             
             # Assess fallback quality
@@ -466,7 +466,7 @@ class FallbackScoringService(BaseService):
     
     def _create_fallback_reason(
         self,
-        lighthouse_failure_reason: str,
+        pagespeed_failure_reason: str,
         failure_analysis: Dict[str, Any],
         retry_attempts: int,
         success_status: bool
@@ -475,7 +475,7 @@ class FallbackScoringService(BaseService):
         try:
             fallback_reason = FallbackReasonDetails(
                 failure_type=failure_analysis["failure_type"],
-                error_message=lighthouse_failure_reason,
+                error_message=pagespeed_failure_reason,
                 severity_level=failure_analysis["severity"].value,
                 fallback_decision=failure_analysis["decision"].value,
                 retry_attempts=retry_attempts,
@@ -490,7 +490,7 @@ class FallbackScoringService(BaseService):
             # Return default fallback reason on error
             return FallbackReasonDetails(
                 failure_type="UNKNOWN_ERROR",
-                error_message=lighthouse_failure_reason,
+                error_message=pagespeed_failure_reason,
                 severity_level="medium",
                 fallback_decision="immediate_fallback",
                 retry_attempts=retry_attempts,

@@ -98,28 +98,83 @@ class MobileUsability(BaseModel):
 
 
 class ContentQuality(BaseModel):
-    """Content quality assessment metrics."""
+    """Content quality heuristics evaluation."""
     
-    has_proper_headings: bool = Field(False, description="Proper heading structure (H1, H2, etc.)")
-    has_alt_text: bool = Field(False, description="Images have alt text")
-    has_meta_description: bool = Field(False, description="Meta description present")
-    has_meta_keywords: bool = Field(False, description="Meta keywords present")
-    has_structured_data: bool = Field(False, description="Structured data markup present")
+    has_clear_headlines: bool = Field(False, description="Clear and descriptive headlines")
+    has_structured_content: bool = Field(False, description="Well-structured content")
     has_internal_links: bool = Field(False, description="Internal linking structure")
-    has_external_links: bool = Field(False, description="External links present")
-    has_blog_content: bool = Field(False, description="Blog or content section present")
+    has_external_links: bool = Field(False, description="Relevant external links")
+    has_meta_descriptions: bool = Field(False, description="Meta descriptions present")
+    has_alt_text: bool = Field(False, description="Alt text for images")
+    has_faq_section: bool = Field(False, description="FAQ section present")
+    has_blog_content: bool = Field(False, description="Blog or content section")
 
 
 class SocialProof(BaseModel):
     """Social proof elements detected."""
     
-    has_social_media_links: bool = Field(False, description="Social media links present")
-    has_customer_reviews: bool = Field(False, description="Customer reviews visible")
-    has_testimonials: bool = Field(False, description="Customer testimonials present")
-    has_case_studies: bool = Field(False, description="Case studies or success stories")
-    has_awards_certifications: bool = Field(False, description="Awards or certifications")
-    has_partner_logos: bool = Field(False, description="Partner or client logos visible")
-    has_user_generated_content: bool = Field(False, description="User-generated content present")
+    has_customer_count: bool = Field(False, description="Customer count displayed")
+    has_case_studies: bool = Field(False, description="Case studies present")
+    has_awards: bool = Field(False, description="Awards or recognition")
+    has_partnerships: bool = Field(False, description="Partnership logos")
+    has_media_mentions: bool = Field(False, description="Media mentions or press")
+    has_social_media: bool = Field(False, description="Social media presence")
+
+
+class PageSpeedAuditRequest(BaseModel):
+    """Request model for PageSpeed audit."""
+    
+    website_url: str = Field(..., description="Website URL to analyze")
+    business_id: str = Field(..., description="Business identifier")
+    run_id: str = Field(..., description="Run identifier")
+    strategy: AuditStrategy = Field(AuditStrategy.DESKTOP, description="Analysis strategy")
+    categories: Optional[List[str]] = Field(
+        default=["performance", "accessibility", "best-practices", "seo"],
+        description="Lighthouse categories to analyze"
+    )
+    
+    @field_validator('website_url')
+    @classmethod
+    def validate_website_url(cls, v):
+        """Validate website URL format."""
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError('Website URL must start with http:// or https://')
+        return v
+
+
+class CoreWebVitals(BaseModel):
+    """Core Web Vitals metrics from PageSpeed audit."""
+    
+    first_contentful_paint: float = Field(..., description="First Contentful Paint in milliseconds")
+    largest_contentful_paint: float = Field(..., description="Largest Contentful Paint in milliseconds")
+    cumulative_layout_shift: float = Field(..., description="Cumulative Layout Shift score")
+    total_blocking_time: float = Field(..., description="Total Blocking Time in milliseconds")
+    speed_index: float = Field(..., description="Speed Index in milliseconds")
+
+
+class PageSpeedAuditResponse(BaseModel):
+    """Response model for PageSpeed audit."""
+    
+    success: bool = Field(..., description="Whether the audit was successful")
+    website_url: str = Field(..., description="Website URL analyzed")
+    business_id: str = Field(..., description="Business identifier")
+    run_id: str = Field(..., description="Run identifier")
+    audit_timestamp: float = Field(..., description="Audit timestamp")
+    strategy: str = Field(..., description="Analysis strategy used")
+    scores: WebsiteScore = Field(..., description="Performance scores")
+    core_web_vitals: CoreWebVitals = Field(..., description="Core Web Vitals metrics")
+    raw_data: Optional[Dict[str, Any]] = Field(default=None, description="Raw API response data")
+
+
+class PageSpeedAuditError(BaseModel):
+    """Error model for PageSpeed audit failures."""
+    
+    success: bool = Field(False, description="Audit was not successful")
+    error: str = Field(..., description="Error message")
+    error_code: str = Field(..., description="Error code")
+    context: str = Field(..., description="Error context")
+    run_id: str = Field(..., description="Run identifier")
+    business_id: str = Field(..., description="Business identifier")
 
 
 class HeuristicEvaluationRequest(BaseModel):
@@ -487,7 +542,7 @@ class FallbackScoringRequest(BaseModel):
     
     website_url: str = Field(..., description="URL of the website to score")
     business_id: str = Field(..., description="Business identifier")
-    lighthouse_failure_reason: str = Field(..., description="Reason why Lighthouse failed")
+    pagespeed_failure_reason: str = Field(..., description="Reason why PageSpeed failed")
     run_id: Optional[str] = Field(None, description="Run identifier")
     fallback_parameters: Optional[Dict[str, Any]] = Field(None, description="Additional fallback parameters")
 

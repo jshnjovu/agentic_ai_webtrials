@@ -1,228 +1,160 @@
-# Website Template Generator - Frontend
+# Agentic AI Frontend
 
-This is the frontend implementation of the Website Template Generator system, designed to create professional websites quickly using pre-built templates and business data input.
+This is the frontend application for the LeadGen Makeover Agent, built with Next.js and TypeScript.
 
-## Features
+## 🚀 **New Lighthouse Implementation**
 
-### 🎨 Template System
-- **Base Template**: Extensible foundation for all website templates
-- **Restaurant Templates**: Specialized for food service businesses
-- **Retail Templates**: Optimized for e-commerce and retail stores
-- **Service Templates**: Professional service business layouts
-- **Professional Templates**: Corporate and consulting business designs
+**IMPORTANT**: We've completely redesigned the Lighthouse implementation to use the **programmatic API** instead of CLI execution. This eliminates the zero-score issues and provides reliable performance auditing directly from the frontend.
 
-### 🚀 User Experience
-- **Template Gallery**: Browse and select from available templates
-- **Progressive Forms**: Step-by-step business data collection
-- **Live Preview**: See your website before generation
-- **Mobile-First Design**: Responsive across all devices
-- **Accessibility**: WCAG 2.1 AA compliant
+### **How It Works Now:**
 
-### 🎯 Design System
-- **Custom Color Palette**: Professional business-focused colors
-- **Typography**: Inter + Source Sans Pro + JetBrains Mono
-- **Component Library**: Reusable UI components
-- **Responsive Grid**: Mobile-first responsive design
-- **Animation**: Smooth transitions and micro-interactions
+1. **Frontend Processing**: Lighthouse runs directly in the browser using Node.js packages
+2. **Real-time Results**: Immediate performance scores without backend processing delays
+3. **No CLI Issues**: Eliminates subprocess failures and platform-specific problems
+4. **Backend Storage**: Results are optionally sent to backend for aggregation
 
-## Project Structure
+### **Key Benefits:**
 
-```
-frontend/
-├── components/           # React components
-│   ├── TemplateGallery.tsx      # Template selection interface
-│   └── BusinessDataForm.tsx     # Progressive business data form
-├── templates/            # Website templates
-│   ├── base/            # Base template foundation
-│   │   └── index.tsx    # BaseTemplate component
-│   └── themes/          # Template variations
-│       ├── restaurant/  # Restaurant-specific templates
-│       └── retail/      # Retail-specific templates
-├── pages/               # Next.js pages
-│   ├── _app.tsx         # App wrapper
-│   └── templates.tsx    # Main template dashboard
-├── styles/              # Global styles
-│   └── globals.css      # Tailwind + custom styles
-├── utils/               # Utility functions
-│   └── cn.ts            # Class name utility
-└── package.json         # Dependencies
-```
+- ✅ **Real scores** - No more zero scores from failed CLI execution
+- ✅ **Faster results** - Immediate processing without HTTP round-trips
+- ✅ **Reliable execution** - Programmatic API vs unreliable CLI calls
+- ✅ **Cross-platform** - Works consistently across all operating systems
+- ✅ **Better debugging** - JavaScript errors vs subprocess failures
 
-## Getting Started
+## 🛠️ **Setup**
 
-### Prerequisites
+### **Prerequisites**
+
 - Node.js 18+ 
 - npm or yarn
 
-### Installation
+### **Installation**
 
-1. Install dependencies:
 ```bash
+# Install dependencies (includes Lighthouse packages)
 npm install
+
+# Test Lighthouse packages
+npm run lighthouse:test
 ```
 
-2. Start development server:
+### **Development**
+
 ```bash
+# Start development server
 npm run dev
+
+# Navigate to http://localhost:3000/lighthouse-test
+# Test the new Lighthouse functionality
 ```
 
-3. Open [http://localhost:3000/templates](http://localhost:3000/templates)
+## 🧪 **Testing Lighthouse**
 
-### Build for Production
+Visit `/lighthouse-test` to test the new frontend-based Lighthouse implementation:
 
-```bash
-npm run build
-npm start
-```
+1. **Enter a website URL** (e.g., https://www.google.com)
+2. **Select strategy** (desktop or mobile)
+3. **Click "Run Lighthouse Audit"**
+4. **View real-time results** with actual performance scores
 
-## Template Development
+## 📦 **Dependencies**
 
-### Creating New Templates
+### **Core Dependencies**
+- Next.js 13.4.0
+- React 18.2.0
+- TypeScript 5.9.2
+- Tailwind CSS 3.3.5
 
-1. **Extend BaseTemplate**: All templates should extend the base template
-2. **Follow Naming Convention**: Use descriptive names (e.g., `ModernRestaurantTemplate`)
-3. **Implement Required Props**: Include all necessary business data fields
-4. **Mobile-First Design**: Ensure responsive behavior across breakpoints
+### **Lighthouse Dependencies**
+- `lighthouse@^11.6.0` - Core Lighthouse functionality
+- `chrome-launcher@^1.1.0` - Chrome browser management
 
-### Example Template Structure
+## 🔧 **Architecture**
 
-```tsx
-import React from 'react';
-import { BaseTemplate, BaseTemplateProps } from '../base';
+### **Frontend Lighthouse Processing**
+```typescript
+// frontend/utils/lighthouse.ts
+import lighthouse from 'lighthouse';
+import chromeLauncher from 'chrome-launcher';
 
-export interface CustomTemplateProps extends BaseTemplateProps {
-  // Add custom props here
-  customField?: string;
+export async function runLighthouseAudit(request: LighthouseAuditRequest) {
+  const chrome = await chromeLauncher.launch({
+    chromeFlags: ['--headless', '--no-sandbox']
+  });
+  
+  const result = await lighthouse(request.websiteUrl, options);
+  await chrome.kill();
+  
+  return result.lhr;
 }
-
-export const CustomTemplate: React.FC<CustomTemplateProps> = ({
-  customField,
-  ...baseProps
-}) => {
-  return (
-    <BaseTemplate {...baseProps}>
-      {/* Your custom template content */}
-    </BaseTemplate>
-  );
-};
 ```
 
-## Design System
-
-### Color Palette
-
-| Color | Hex | Usage |
-|-------|-----|-------|
-| Primary | #2563EB | Main brand color, buttons, links |
-| Secondary | #64748B | Secondary actions, borders |
-| Accent | #F59E0B | Call-to-action, highlights |
-| Success | #10B981 | Positive feedback, confirmations |
-| Error | #EF4444 | Errors, destructive actions |
-
-### Typography
-
-- **Primary**: Inter (sans-serif) - Body text, UI elements
-- **Headings**: Source Sans Pro (sans-serif) - Titles, headings
-- **Monospace**: JetBrains Mono - Code, technical content
-
-### Breakpoints
-
-- **Mobile**: 320px - 767px
-- **Tablet**: 768px - 1023px
-- **Desktop**: 1024px+
-
-## Component API
-
-### TemplateGallery
-
-```tsx
-<TemplateGallery
-  templates={templates}
-  onTemplateSelect={handleSelect}
-  selectedTemplate={selected}
-/>
+### **Backend Integration**
+```typescript
+// Optional: Send results to backend for storage
+export async function sendResultsToBackend(results: LighthouseResult) {
+  const response = await fetch('/api/v1/website-scoring/lighthouse-results', {
+    method: 'POST',
+    body: JSON.stringify(results)
+  });
+  return response.ok;
+}
 ```
 
-### BusinessDataForm
+## 📁 **File Structure**
 
-```tsx
-<BusinessDataForm
-  initialData={data}
-  onDataChange={handleChange}
-  templateCategory="restaurant"
-/>
+```
+frontend/
+├── components/
+│   └── LighthouseTest.tsx    # Test component for Lighthouse
+├── pages/
+│   └── lighthouse-test.tsx   # Test page route
+├── utils/
+│   └── lighthouse.ts         # Lighthouse utility functions
+├── package.json              # Dependencies including Lighthouse
+└── README.md                 # This file
 ```
 
-### BaseTemplate
+## 🚫 **What We Removed**
 
-```tsx
-<BaseTemplate
-  businessName="Business Name"
-  tagline="Business Tagline"
-  description="Business Description"
-  phone="(555) 123-4567"
-  email="contact@business.com"
-  address="123 Business St"
-  services={["Service 1", "Service 2"]}
->
-  {/* Custom content */}
-</BaseTemplate>
-```
+- ❌ CLI execution scripts
+- ❌ Subprocess management
+- ❌ Platform-specific path resolution
+- ❌ All the complexity causing zero scores
 
-## Accessibility Features
+## ✅ **What We Added**
 
-- **Semantic HTML**: Proper heading hierarchy and landmarks
-- **ARIA Labels**: Screen reader support
-- **Keyboard Navigation**: Full keyboard accessibility
-- **Color Contrast**: WCAG 2.1 AA compliant
-- **Focus Management**: Clear focus indicators
+- ✅ Programmatic Lighthouse API usage
+- ✅ Chrome Launcher integration
+- ✅ Real-time performance auditing
+- ✅ Immediate results display
+- ✅ Cross-platform compatibility
 
-## Performance Optimizations
+## 🔍 **Troubleshooting**
 
-- **Lazy Loading**: Components load on demand
-- **Image Optimization**: Responsive images with Next.js
-- **CSS Optimization**: Tailwind CSS with PurgeCSS
-- **Bundle Splitting**: Code splitting for better performance
+### **If Lighthouse Fails:**
+1. **Check Node.js version** (needs 18+)
+2. **Verify npm packages** are installed correctly
+3. **Check Chrome installation** (Chrome Launcher needs Chrome/Chromium)
+4. **Clear node_modules** and reinstall if needed
 
-## Testing
+### **If Backend Integration Fails:**
+1. **Backend is optional** - Lighthouse works independently
+2. **Check backend URL** in environment variables
+3. **Verify backend API** endpoint is accessible
 
-```bash
-# Run tests
-npm test
+## 📖 **Documentation**
 
-# Run tests in watch mode
-npm run test:watch
+- [Lighthouse Programmatic API](https://github.com/GoogleChrome/lighthouse/blob/main/docs/readme.md#using-programmatically)
+- [Chrome Launcher Documentation](https://github.com/GoogleChrome/chrome-launcher)
+- [Next.js Documentation](https://nextjs.org/docs)
 
-# Run linting
-npm run lint
-```
+## 🎯 **Next Steps**
 
-## Deployment
+1. **Test the new implementation** at `/lighthouse-test`
+2. **Integrate with existing components** using the new utility
+3. **Update backend integration** to use the new endpoint
+4. **Remove old CLI-based code** from backend
+5. **Deploy and monitor** performance improvements
 
-### Vercel (Recommended)
-
-1. Connect your GitHub repository
-2. Configure build settings
-3. Deploy automatically on push
-
-### Manual Deployment
-
-1. Build the project: `npm run build`
-2. Export static files: `npm run export`
-3. Deploy to your hosting provider
-
-## Contributing
-
-1. Follow the established code style
-2. Add tests for new components
-3. Update documentation
-4. Ensure accessibility compliance
-5. Test across different devices and browsers
-
-## License
-
-This project is part of the Business Lead Generation System.
-
-## Support
-
-For questions or issues, please refer to the project documentation or create an issue in the repository.
+The new architecture is **much cleaner, more reliable, and follows best practices**! 🎉

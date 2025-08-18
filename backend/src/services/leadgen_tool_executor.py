@@ -11,7 +11,7 @@ from datetime import datetime
 
 from src.services.google_places_service import GooglePlacesService
 from src.services.yelp_fusion_service import YelpFusionService
-from src.services.lighthouse_service import LighthouseService
+from src.services.google_pagespeed_service import GooglePageSpeedService
 from src.services.heuristic_evaluation_service import HeuristicEvaluationService
 from src.services.score_validation_service import ScoreValidationService
 from src.services.fallback_scoring_service import FallbackScoringService
@@ -35,7 +35,7 @@ class LeadGenToolExecutor:
     def __init__(self):
         self.google_places_service = GooglePlacesService()
         self.yelp_service = YelpFusionService()
-        self.lighthouse_service = LighthouseService()
+        self.pagespeed_service = GooglePageSpeedService()
         self.heuristic_service = HeuristicEvaluationService()
         self.score_validation_service = ScoreValidationService()
         self.fallback_scoring_service = FallbackScoringService()
@@ -340,24 +340,24 @@ class LeadGenToolExecutor:
                     try:
                         logger.info(f"📊 Scoring website: {business['website']}")
                         
-                        # Step 1: Run Lighthouse audit using existing service
-                        lighthouse_result = await self.lighthouse_service.run_lighthouse_audit(
+                        # Step 1: Run PageSpeed audit using existing service
+                        pagespeed_result = await self.pagespeed_service.run_pagespeed_audit(
                             website_url=business["website"],
                             business_id=business.get("business_id", "unknown"),
                             run_id=arguments.get("run_id"),
                             strategy="desktop"
                         )
                         
-                        if lighthouse_result.get("success"):
-                            # Lighthouse succeeded - use its scores
-                            scores = lighthouse_result.get("scores", {})
+                        if pagespeed_result.get("success"):
+                            # PageSpeed succeeded - use its scores
+                            scores = pagespeed_result.get("scores", {})
                             scored_business.update({
                                 "score_perf": int(scores.get("performance_score", 0) * 100),
                                 "score_access": int(scores.get("accessibility_score", 0) * 100),
                                 "score_seo": int(scores.get("seo_score", 0) * 100),
                                 "score_trust": int(scores.get("best_practices_score", 0) * 100),
                                 "score_overall": int(scores.get("overall_score", 0) * 100),
-                                "scoring_method": "lighthouse",
+                                "scoring_method": "pagespeed",
                                 "confidence_level": "high"
                             })
                             
@@ -406,13 +406,13 @@ class LeadGenToolExecutor:
                                 scored_business["heuristic_overall"] = 0
                                 
                         else:
-                            # Lighthouse failed - use fallback scoring service
-                            logger.warning(f"Lighthouse failed for {business['website']}, using fallback scoring")
+                            # PageSpeed failed - use fallback scoring service
+                            logger.warning(f"PageSpeed failed for {business['website']}, using fallback scoring")
                             
                             fallback_result = await self.fallback_scoring_service.run_fallback_scoring(
                                 website_url=business["website"],
                                 business_id=business.get("business_id", "unknown"),
-                                lighthouse_failure_reason=lighthouse_result.get("error", "unknown_error"),
+                                pagespeed_failure_reason=pagespeed_result.get("error", "unknown_error"),
                                 run_id=arguments.get("run_id")
                             )
                             
@@ -426,12 +426,12 @@ class LeadGenToolExecutor:
                                     "score_overall": fallback_scores.get("overall_score", 0),
                                     "scoring_method": "fallback_heuristics",
                                     "confidence_level": "medium",
-                                    "fallback_reason": lighthouse_result.get("error"),
+                                    "fallback_reason": pagespeed_result.get("error"),
                                     "fallback_quality": fallback_result.get("quality_metrics", {})
                                 })
                             else:
-                                # Both Lighthouse and fallback failed
-                                logger.error(f"Both Lighthouse and fallback failed for {business['website']}")
+                                # Both PageSpeed and fallback failed
+                                logger.error(f"Both PageSpeed and fallback failed for {business['website']}")
                                 scored_business.update({
                                     "score_perf": 0,
                                     "score_access": 0,

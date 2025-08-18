@@ -1,6 +1,6 @@
 """
-Website scoring API endpoints for Lighthouse integration.
-Provides endpoints for triggering website performance audits.
+Website scoring API endpoints for PageSpeed analysis, heuristic evaluation and fallback scoring.
+Provides endpoints for website analysis using Google PageSpeed API and heuristic evaluation.
 """
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
@@ -9,37 +9,32 @@ import uuid
 import time
 
 from src.schemas.website_scoring import (
-    LighthouseAuditRequest,
-    LighthouseAuditResponse,
-    LighthouseAuditError,
-    WebsiteScoringSummary,
-    AuditStrategy,
-    ConfidenceLevel,
     HeuristicEvaluationRequest,
     HeuristicEvaluationResponse,
     HeuristicEvaluationError,
+    WebsiteScoringSummary,
+    AuditStrategy,
+    ConfidenceLevel,
     ScoreValidationRequest,
     ScoreValidationResponse,
     RateLimitExceededError,
     FallbackScoringRequest,
     FallbackScoringResponse,
     FallbackScoringError,
-    FallbackMonitoringResponse
+    FallbackMonitoringResponse,
+    PageSpeedAuditRequest,
+    PageSpeedAuditResponse,
+    PageSpeedAuditError
 )
-from src.services.lighthouse_service import LighthouseService
 from src.services.heuristic_evaluation_service import HeuristicEvaluationService
 from src.services.score_validation_service import ScoreValidationService
 from src.services.fallback_scoring_service import FallbackScoringService
+from src.services.google_pagespeed_service import GooglePageSpeedService
 from src.services.rate_limiter import RateLimiter
-from src.models.website_scoring import WebsiteScore, LighthouseAuditResult
+from src.models.website_scoring import WebsiteScore
 from src.utils.score_calculation import calculate_overall_score, get_score_insights
 
 router = APIRouter(prefix="/website-scoring", tags=["website-scoring"])
-
-
-def get_lighthouse_service() -> LighthouseService:
-    """Dependency to get Lighthouse service instance."""
-    return LighthouseService()
 
 
 def get_heuristic_evaluation_service() -> HeuristicEvaluationService:
@@ -62,133 +57,68 @@ def get_fallback_scoring_service() -> FallbackScoringService:
     return FallbackScoringService()
 
 
-@router.post("/lighthouse", response_model=LighthouseAuditResponse)
-async def run_lighthouse_audit(
-    request: LighthouseAuditRequest,
-    background_tasks: BackgroundTasks,
-    service: LighthouseService = Depends(get_lighthouse_service)
-) -> LighthouseAuditResponse:
+def get_pagespeed_service() -> GooglePageSpeedService:
+    """Dependency to get GooglePageSpeedService instance."""
+    return GooglePageSpeedService()
+
+
+@router.post("/pagespeed", response_model=PageSpeedAuditResponse)
+async def run_pagespeed_audit(
+    request: PageSpeedAuditRequest,
+    service: GooglePageSpeedService = Depends(get_pagespeed_service)
+) -> PageSpeedAuditResponse:
     """
-    Run a Lighthouse audit for website performance evaluation.
+    Run a PageSpeed audit using Google PageSpeed Insights API.
     
     Args:
-        request: Lighthouse audit request with website URL and parameters
-        background_tasks: FastAPI background tasks for async processing
-        service: Lighthouse service instance
+        request: PageSpeed audit request with website URL and parameters
+        service: PageSpeed service instance
         
     Returns:
-        Lighthouse audit response with performance scores and metrics
-        
-    Raises:
-        HTTPException: If audit fails or validation errors occur
+        PageSpeed audit response with analysis scores and metrics
     """
     try:
-        # Generate run_id if not provided
-        if not request.run_id:
-            request.run_id = str(uuid.uuid4())
-        
         # Validate request
         if not service.validate_input(request.dict()):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid Lighthouse audit request"
+                detail="Invalid PageSpeed audit request"
             )
         
-        # Execute audit
-        audit_result = service.run_lighthouse_audit(
-            website_url=str(request.website_url),
+        # Run PageSpeed audit
+        audit_result = service.run_pagespeed_audit(
+            website_url=request.website_url,
             business_id=request.business_id,
             run_id=request.run_id,
-            strategy=request.strategy.value
+            strategy=request.strategy,
+            categories=request.categories
         )
         
-        # Handle error responses
         if not audit_result.get("success", False):
-            error_response = LighthouseAuditError(
+            error_response = PageSpeedAuditError(
                 success=False,
-                error=audit_result.get("error", "Unknown error occurred"),
-                context=audit_result.get("context", "audit_execution"),
-                website_url=str(request.website_url),
-                business_id=request.business_id,
+                error=audit_result.get("error", "Unknown error"),
+                error_code=audit_result.get("error_code", "AUDIT_FAILED"),
+                context=audit_result.get("context", "pagespeed_audit"),
                 run_id=request.run_id,
-                audit_timestamp=time.time(),
-                error_code=audit_result.get("error_code"),
-                scores={
-                    'performance': 0.0,
-                    'accessibility': 0.0,
-                    'best_practices': 0.0,
-                    'seo': 0.0,
-                    'overall': 0.0
-                },
-                core_web_vitals={},
-                confidence=ConfidenceLevel.LOW,
-                strategy=request.strategy.value
+                business_id=request.business_id
             )
-            
-            # Return error response with appropriate HTTP status
-            if audit_result.get("error_code") == "TIMEOUT":
-                raise HTTPException(
-                    status_code=408,
-                    detail={
-                        "error": "Lighthouse audit timed out",
-                        "error_code": "TIMEOUT",
-                        "context": "audit_execution",
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
-            elif audit_result.get("error_code") == "RATE_LIMIT_EXCEEDED":
-                raise HTTPException(
-                    status_code=429,
-                    detail={
-                        "error": "Rate limit exceeded for Lighthouse API",
-                        "error_code": "RATE_LIMIT_EXCEEDED",
-                        "context": "rate_limit_check",
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": audit_result.get("error", "Audit failed"),
-                        "error_code": audit_result.get("error_code"),
-                        "context": audit_result.get("context", "audit_execution"),
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
+            raise HTTPException(
+                status_code=500,
+                detail=error_response.dict()
+            )
         
-        # Create successful response
-        response = LighthouseAuditResponse(
+        # Convert to response model
+        response = PageSpeedAuditResponse(
             success=True,
-            website_url=str(request.website_url),
-            business_id=request.business_id,
-            run_id=request.run_id,
-            audit_timestamp=audit_result.get("audit_timestamp", time.time()),
-            strategy=audit_result.get("strategy", request.strategy.value),
-            scores={
-                'performance': audit_result.get("scores", {}).get("performance", 0.0),
-                'accessibility': audit_result.get("scores", {}).get("accessibility", 0.0),
-                'best_practices': audit_result.get("scores", {}).get("best_practices", 0.0),
-                'seo': audit_result.get("scores", {}).get("seo", 0.0),
-                'overall': audit_result.get("overall_score", 0.0)
-            },
-            core_web_vitals=audit_result.get("core_web_vitals", {}),
-            confidence=ConfidenceLevel(audit_result.get("confidence", "low")),
-            raw_data=audit_result.get("raw_data")
-        )
-        
-        # Add background task for data persistence (if database is configured)
-        background_tasks.add_task(
-            _persist_audit_results,
-            audit_result,
-            request.business_id,
-            request.run_id
+            website_url=audit_result["website_url"],
+            business_id=audit_result["business_id"],
+            run_id=audit_result["run_id"],
+            audit_timestamp=audit_result["audit_timestamp"],
+            strategy=audit_result["strategy"],
+            scores=audit_result["scores"],
+            core_web_vitals=audit_result["core_web_vitals"],
+            raw_data=audit_result.get("raw_data", {})
         )
         
         return response
@@ -198,35 +128,91 @@ async def run_lighthouse_audit(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during Lighthouse audit: {str(e)}"
+            detail=f"Internal server error during PageSpeed audit: {str(e)}"
         )
 
 
-@router.post("/heuristics", response_model=HeuristicEvaluationResponse)
+@router.get("/pagespeed/{business_id}/summary", response_model=WebsiteScoringSummary)
+async def get_pagespeed_summary(
+    business_id: str,
+    service: GooglePageSpeedService = Depends(get_pagespeed_service)
+) -> WebsiteScoringSummary:
+    """
+    Get PageSpeed audit summary for a business.
+    
+    Args:
+        business_id: Business identifier
+        service: PageSpeed service instance
+        
+    Returns:
+        Website scoring summary with PageSpeed results
+    """
+    try:
+        # Get PageSpeed audit history
+        audit_history = service.get_audit_history(business_id)
+        
+        if not audit_history:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No PageSpeed audits found for business: {business_id}"
+            )
+        
+        # Calculate summary statistics
+        total_audits = len(audit_history)
+        successful_audits = sum(1 for audit in audit_history if audit.get("success", False))
+        average_score = sum(audit.get("scores", {}).get("overall", 0) for audit in audit_history) / total_audits
+        
+        summary = WebsiteScoringSummary(
+            business_id=business_id,
+            total_evaluations=total_audits,
+            successful_evaluations=successful_audits,
+            average_score=average_score,
+            last_evaluation=audit_history[-1] if audit_history else None,
+            evaluation_history=audit_history
+        )
+        
+        return summary
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error getting PageSpeed summary: {str(e)}"
+        )
+
+
+@router.get("/pagespeed/health")
+async def pagespeed_health_check(
+    service: GooglePageSpeedService = Depends(get_pagespeed_service)
+):
+    """Health check endpoint for PageSpeed service."""
+    health_data = service.get_service_health()
+    return {
+        "status": "healthy",
+        "service": "pagespeed",
+        "timestamp": time.time(),
+        "version": "2.0.0",
+        "health_data": health_data
+    }
+
+
+@router.post("/heuristic", response_model=HeuristicEvaluationResponse)
 async def run_heuristic_evaluation(
     request: HeuristicEvaluationRequest,
-    background_tasks: BackgroundTasks,
     service: HeuristicEvaluationService = Depends(get_heuristic_evaluation_service)
 ) -> HeuristicEvaluationResponse:
     """
-    Run heuristic evaluation for website trust signals, CRO elements, and usability.
+    Run a heuristic evaluation for website analysis.
     
     Args:
         request: Heuristic evaluation request with website URL and parameters
-        background_tasks: FastAPI background tasks for async processing
         service: Heuristic evaluation service instance
         
     Returns:
-        Heuristic evaluation response with scores and detailed breakdown
-        
-    Raises:
-        HTTPException: If evaluation fails or validation errors occur
+        Heuristic evaluation response with analysis scores and metrics
     """
     try:
-        # Generate run_id if not provided
-        if not request.run_id:
-            request.run_id = str(uuid.uuid4())
-        
         # Validate request
         if not service.validate_input(request.dict()):
             raise HTTPException(
@@ -234,102 +220,42 @@ async def run_heuristic_evaluation(
                 detail="Invalid heuristic evaluation request"
             )
         
-        # Execute evaluation
+        # Run heuristic evaluation
         evaluation_result = service.run_heuristic_evaluation(
-            website_url=str(request.website_url),
+            website_url=request.website_url,
             business_id=request.business_id,
             run_id=request.run_id
         )
         
-        # Handle error responses
         if not evaluation_result.get("success", False):
             error_response = HeuristicEvaluationError(
                 success=False,
-                error=evaluation_result.get("error", "Unknown error occurred"),
-                context=evaluation_result.get("context", "evaluation_execution"),
-                website_url=str(request.website_url),
-                business_id=request.business_id,
+                error=evaluation_result.get("error", "Unknown error"),
+                error_code=evaluation_result.get("error_code", "EVALUATION_FAILED"),
+                context=evaluation_result.get("context", "heuristic_evaluation"),
                 run_id=request.run_id,
-                evaluation_timestamp=time.time(),
-                error_code=evaluation_result.get("error_code"),
-                scores={
-                    'trust_score': 0.0,
-                    'cro_score': 0.0,
-                    'mobile_score': 0.0,
-                    'content_score': 0.0,
-                    'social_score': 0.0,
-                    'overall_heuristic_score': 0.0,
-                    'confidence_level': ConfidenceLevel.LOW
-                },
-                trust_signals={},
-                cro_elements={},
-                mobile_usability={},
-                content_quality={},
-                social_proof={},
-                confidence=ConfidenceLevel.LOW
+                business_id=request.business_id
             )
-            
-            # Return error response with appropriate HTTP status
-            if evaluation_result.get("error_code") == "TIMEOUT":
-                raise HTTPException(
-                    status_code=408,
-                    detail={
-                        "error": "Heuristic evaluation timed out",
-                        "error_code": "TIMEOUT",
-                        "context": "evaluation_execution",
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
-            elif evaluation_result.get("error_code") == "RATE_LIMIT_EXCEEDED":
-                raise HTTPException(
-                    status_code=429,
-                    detail={
-                        "error": "Rate limit exceeded for heuristic evaluation",
-                        "error_code": "RATE_LIMIT_EXCEEDED",
-                        "context": "rate_limit_check",
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": evaluation_result.get("error", "Evaluation failed"),
-                        "error_code": evaluation_result.get("error_code"),
-                        "context": evaluation_result.get("context", "evaluation_execution"),
-                        "website_url": str(request.website_url),
-                        "business_id": request.business_id,
-                        "run_id": request.run_id
-                    }
-                )
+            raise HTTPException(
+                status_code=500,
+                detail=error_response.dict()
+            )
         
-        # Create successful response
+        # Convert to response model
         response = HeuristicEvaluationResponse(
             success=True,
-            website_url=str(request.website_url),
-            business_id=request.business_id,
-            run_id=request.run_id,
-            evaluation_timestamp=evaluation_result.get("evaluation_timestamp", time.time()),
-            scores=evaluation_result.get("scores"),
-            trust_signals=evaluation_result.get("trust_signals"),
-            cro_elements=evaluation_result.get("cro_elements"),
-            mobile_usability=evaluation_result.get("mobile_usability"),
-            content_quality=evaluation_result.get("content_quality"),
-            social_proof=evaluation_result.get("social_proof"),
-            confidence=ConfidenceLevel(evaluation_result.get("confidence", "low")),
-            raw_data=evaluation_result.get("raw_data")
-        )
-        
-        # Add background task for data persistence (if database is configured)
-        background_tasks.add_task(
-            _persist_heuristic_results,
-            evaluation_result,
-            request.business_id,
-            request.run_id
+            website_url=evaluation_result["website_url"],
+            business_id=evaluation_result["business_id"],
+            run_id=evaluation_result["run_id"],
+            evaluation_timestamp=evaluation_result["evaluation_timestamp"],
+            scores=evaluation_result["scores"],
+            trust_signals=evaluation_result["trust_signals"],
+            cro_elements=evaluation_result["cro_elements"],
+            mobile_usability=evaluation_result["mobile_usability"],
+            content_quality=evaluation_result["content_quality"],
+            social_proof=evaluation_result["social_proof"],
+            confidence=evaluation_result["confidence"],
+            raw_data=evaluation_result.get("raw_data", {})
         )
         
         return response
@@ -343,89 +269,72 @@ async def run_heuristic_evaluation(
         )
 
 
-@router.get("/lighthouse/{business_id}/summary", response_model=WebsiteScoringSummary)
-async def get_website_scoring_summary(
+@router.get("/heuristic/{business_id}/summary", response_model=WebsiteScoringSummary)
+async def get_heuristic_summary(
     business_id: str,
-    limit: Optional[int] = 10,
-    service: LighthouseService = Depends(get_lighthouse_service)
+    service: HeuristicEvaluationService = Depends(get_heuristic_evaluation_service)
 ) -> WebsiteScoringSummary:
     """
-    Get website scoring summary for a business.
+    Get heuristic evaluation summary for a business.
     
     Args:
         business_id: Business identifier
-        limit: Maximum number of audit results to include
-        service: Lighthouse service instance
+        service: Heuristic evaluation service instance
         
     Returns:
-        Website scoring summary with audit history and statistics
+        Website scoring summary with heuristic results
     """
     try:
-        # This would typically query the database for historical results
-        # For now, return a placeholder response
+        # Get heuristic evaluation history
+        evaluation_history = service.get_evaluation_history(business_id)
+        
+        if not evaluation_history:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No heuristic evaluations found for business: {business_id}"
+            )
+        
+        # Calculate summary statistics
+        total_evaluations = len(evaluation_history)
+        successful_evaluations = sum(1 for eval in evaluation_history if eval.get("success", False))
+        average_score = sum(eval.get("scores", {}).get("overall", 0) for eval in evaluation_history) / total_evaluations
+        
         summary = WebsiteScoringSummary(
             business_id=business_id,
-            total_audits=0,
-            successful_audits=0,
-            failed_audits=0,
-            average_scores={
-                'performance': 0.0,
-                'accessibility': 0.0,
-                'best_practices': 0.0,
-                'seo': 0.0,
-                'overall': 0.0
-            },
-            audit_history=[]
+            total_evaluations=total_evaluations,
+            successful_evaluations=successful_evaluations,
+            average_score=average_score,
+            last_evaluation=evaluation_history[-1] if evaluation_history else None,
+            evaluation_history=evaluation_history
         )
         
         return summary
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error retrieving scoring summary: {str(e)}"
+            detail=f"Internal server error getting heuristic summary: {str(e)}"
         )
 
 
-@router.post("/validate", response_model=ScoreValidationResponse)
-async def validate_scores(
+@router.post("/validate-scores", response_model=ScoreValidationResponse)
+async def validate_website_scores(
     request: ScoreValidationRequest,
-    background_tasks: BackgroundTasks,
-    service: ScoreValidationService = Depends(get_score_validation_service),
-    rate_limiter: RateLimiter = Depends(get_rate_limiter)
+    service: ScoreValidationService = Depends(get_score_validation_service)
 ) -> ScoreValidationResponse:
     """
-    Validate website scores and calculate confidence levels.
+    Validate and compare website scores from different sources.
     
     Args:
-        request: Score validation request with Lighthouse and heuristic scores
-        background_tasks: FastAPI background tasks for async processing
+        request: Score validation request with heuristic scores
         service: Score validation service instance
-        rate_limiter: Rate limiter service instance
         
     Returns:
-        Score validation response with confidence metrics and final scores
-        
-    Raises:
-        HTTPException: If validation fails or rate limit is exceeded
+        Score validation response with validation results
     """
     try:
-        # Check rate limiting for validation API
-        can_proceed, message = rate_limiter.can_make_request("validation")
-        if not can_proceed:
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "error": "Rate limit exceeded for validation API",
-                    "message": message,
-                    "retry_after": 60
-                }
-            )
-        
-        # Generate run_id if not provided
-        if not request.run_id:
-            request.run_id = str(uuid.uuid4())
-        
         # Validate request
         if not service.validate_input(request.dict()):
             raise HTTPException(
@@ -433,320 +342,162 @@ async def validate_scores(
                 detail="Invalid score validation request"
             )
         
-        # Execute validation
-        validation_result = await service.validate_scores(
-            lighthouse_scores=request.lighthouse_scores,
+        # Run score validation
+        validation_result = service.validate_scores(
             heuristic_scores=request.heuristic_scores,
+            heuristic_weight=1.0,  # Only heuristic scores now
             business_id=request.business_id,
             run_id=request.run_id
         )
         
-        # Record successful request
-        rate_limiter.record_request("validation", True, request.run_id)
-        
-        # Return successful response
-        return ScoreValidationResponse(
-            success=True,
-            business_id=request.business_id,
-            run_id=request.run_id,
-            validation_result=validation_result,
-            final_score=FinalScore(
-                business_id=request.business_id,
+        if not validation_result.get("success", False):
+            error_response = ScoreValidationResponse(
+                success=False,
+                error=validation_result.get("error", "Unknown error"),
+                error_code=validation_result.get("error_code", "VALIDATION_FAILED"),
+                context=validation_result.get("context", "score_validation"),
                 run_id=request.run_id,
-                weighted_final_score=validation_result.final_weighted_score,
-                confidence_level=validation_result.confidence_level,
-                lighthouse_weight=0.8,
-                heuristic_weight=0.2,
-                discrepancy_flags=[],
-                issue_priorities=validation_result.issue_priorities,
-                validation_status=validation_result.validation_status,
-                calculation_timestamp=time.time()
-            ),
-            validation_timestamp=time.time()
+                business_id=request.business_id
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=error_response.dict()
+            )
+        
+        # Convert to response model
+        response = ScoreValidationResponse(
+            success=True,
+            business_id=validation_result["business_id"],
+            run_id=validation_result["run_id"],
+            validation_timestamp=validation_result["validation_timestamp"],
+            validated_scores=validation_result["validated_scores"],
+            confidence_score=validation_result["confidence_score"],
+            validation_insights=validation_result["validation_insights"],
+            raw_data=validation_result.get("raw_data", {})
         )
         
+        return response
+        
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        # Record failed request
-        rate_limiter.record_request("validation", False, request.run_id)
-        
-        # Return error response
         raise HTTPException(
             status_code=500,
-            detail=f"Score validation failed: {str(e)}"
+            detail=f"Internal server error during score validation: {str(e)}"
         )
 
 
 @router.post("/fallback", response_model=FallbackScoringResponse)
 async def run_fallback_scoring(
     request: FallbackScoringRequest,
-    background_tasks: BackgroundTasks,
-    service: FallbackScoringService = Depends(get_fallback_scoring_service),
-    rate_limiter: RateLimiter = Depends(get_rate_limiter)
+    service: FallbackScoringService = Depends(get_fallback_scoring_service)
 ) -> FallbackScoringResponse:
     """
-    Run fallback scoring when Lighthouse fails.
+    Run fallback scoring when primary evaluation fails.
     
     Args:
-        request: Fallback scoring request with website URL and failure reason
-        background_tasks: FastAPI background tasks for async processing
+        request: Fallback scoring request with failure details
         service: Fallback scoring service instance
-        rate_limiter: Rate limiter instance
         
     Returns:
-        Fallback scoring response with heuristic-only scores and confidence indicators
-        
-    Raises:
-        HTTPException: If fallback scoring fails or validation errors occur
+        Fallback scoring response with alternative scores
     """
     try:
-        # Generate run_id if not provided
-        if not request.run_id:
-            request.run_id = str(uuid.uuid4())
-        
-        # Check rate limiting
-        can_make_request, message = rate_limiter.can_make_request("fallback", request.business_id)
-        if not can_make_request:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded: {message}"
-            )
-        
-        # Execute fallback scoring
-        fallback_result = service.run_fallback_scoring(
-            website_url=str(request.website_url),
-            business_id=request.business_id,
-            lighthouse_failure_reason=request.lighthouse_failure_reason,
-            run_id=request.run_id,
-            fallback_parameters=request.fallback_parameters
-        )
-        
-        # Handle error responses
-        if not fallback_result.get("success", False):
-            error_response = FallbackScoringError(
-                success=False,
-                error=fallback_result.get("error", "Unknown error occurred"),
-                error_code=fallback_result.get("error_code", "UNKNOWN_ERROR"),
-                context=fallback_result.get("context", "fallback_scoring"),
-                website_url=str(request.website_url),
-                business_id=request.business_id,
-                run_id=request.run_id,
-                fallback_timestamp=time.time()
-            )
+        # Validate request
+        if not service.validate_input(request.dict()):
             raise HTTPException(
                 status_code=400,
+                detail="Invalid fallback scoring request"
+            )
+        
+        # Run fallback scoring
+        fallback_result = service.run_fallback_scoring(
+            website_url=request.website_url,
+            business_id=request.business_id,
+            primary_failure_reason=request.primary_failure_reason,
+            run_id=request.run_id
+        )
+        
+        if not fallback_result.get("success", False):
+            error_response = FallbackScoringResponse(
+                success=False,
+                error=fallback_result.get("error", "Unknown error"),
+                error_code=fallback_result.get("error_code", "FALLBACK_FAILED"),
+                context=fallback_result.get("context", "fallback_scoring"),
+                run_id=request.run_id,
+                business_id=request.business_id
+            )
+            raise HTTPException(
+                status_code=500,
                 detail=error_response.dict()
             )
         
-        # Add background task for data persistence
-        background_tasks.add_task(
-            _persist_fallback_results,
-            fallback_result,
-            request.business_id,
-            request.run_id
-        )
-        
-        # Record successful request
-        rate_limiter.record_request("fallback", True, request.run_id)
-        
-        # Return success response
-        return FallbackScoringResponse(
+        # Convert to response model
+        response = FallbackScoringResponse(
             success=True,
-            business_id=request.business_id,
-            run_id=request.run_id,
-            fallback_score=fallback_result.get("fallback_score"),
-            error=None,
-            error_code=None,
-            fallback_timestamp=fallback_result.get("fallback_timestamp", time.time())
+            website_url=fallback_result["website_url"],
+            business_id=fallback_result["business_id"],
+            run_id=fallback_result["run_id"],
+            scoring_timestamp=fallback_result["scoring_timestamp"],
+            fallback_scores=fallback_result["fallback_scores"],
+            fallback_method=fallback_result["fallback_method"],
+            confidence_level=fallback_result["confidence_level"],
+            raw_data=fallback_result.get("raw_data", {})
         )
+        
+        return response
         
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        # Record failed request
-        rate_limiter.record_request("fallback", False, request.run_id)
-        
-        # Return error response
-        error_response = FallbackScoringError(
-            success=False,
-            error=str(e),
-            error_code="INTERNAL_ERROR",
-            context="fallback_scoring",
-            website_url=str(request.website_url),
-            business_id=request.business_id,
-            run_id=request.run_id,
-            fallback_timestamp=time.time()
-        )
-        
         raise HTTPException(
             status_code=500,
-            detail=error_response.dict()
+            detail=f"Internal server error during fallback scoring: {str(e)}"
         )
 
 
 @router.get("/fallback/monitoring", response_model=FallbackMonitoringResponse)
 async def get_fallback_monitoring(
-    business_id: str,
-    run_id: Optional[str] = None,
     service: FallbackScoringService = Depends(get_fallback_scoring_service)
 ) -> FallbackMonitoringResponse:
     """
-    Get fallback scoring monitoring and metrics.
+    Get fallback scoring system monitoring data.
     
     Args:
-        business_id: Business identifier
-        run_id: Optional run identifier for specific run
         service: Fallback scoring service instance
         
     Returns:
-        Fallback monitoring response with metrics and performance data
-        
-    Raises:
-        HTTPException: If monitoring data cannot be retrieved
+        Fallback monitoring response with system health data
     """
     try:
-        # Get fallback metrics
-        metrics = service.get_fallback_metrics()
+        # Get monitoring data
+        monitoring_data = service.get_monitoring_data()
         
-        return FallbackMonitoringResponse(
+        response = FallbackMonitoringResponse(
             success=True,
-            business_id=business_id,
-            run_id=run_id or "monitoring",
-            fallback_metrics=metrics,
+            system_health=monitoring_data.get("system_health", "unknown"),
+            fallback_success_rate=monitoring_data.get("fallback_success_rate", 0.0),
+            average_response_time=monitoring_data.get("average_response_time", 0.0),
+            total_fallback_requests=monitoring_data.get("total_fallback_requests", 0),
+            successful_fallback_requests=monitoring_data.get("successful_fallback_requests", 0),
             monitoring_timestamp=time.time()
         )
+        
+        return response
         
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to retrieve fallback monitoring data: {str(e)}"
+            detail=f"Internal server error getting fallback monitoring: {str(e)}"
         )
 
 
 @router.get("/health")
-async def website_scoring_health_check(
-    lighthouse_service: LighthouseService = Depends(get_lighthouse_service),
-    heuristic_service: HeuristicEvaluationService = Depends(get_heuristic_evaluation_service)
-) -> dict:
-    """
-    Health check endpoint for website scoring services.
-    
-    Returns:
-        Health status of the website scoring services
-    """
-    try:
-        # Basic health check - verify services can be instantiated
-        return {
-            "status": "healthy",
-            "service": "Website Scoring API",
-            "timestamp": time.time(),
-            "features": [
-                "lighthouse_auditing",
-                "performance_scoring",
-                "accessibility_evaluation",
-                "seo_analysis",
-                "best_practices_assessment",
-                "heuristic_evaluation",
-                "trust_signal_detection",
-                "cro_element_identification",
-                "mobile_usability_assessment",
-                "content_quality_evaluation",
-                "social_proof_detection"
-            ]
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Website scoring services unhealthy: {str(e)}"
-        )
-
-
-async def _persist_audit_results(
-    audit_result: dict,
-    business_id: str,
-    run_id: str
-) -> None:
-    """
-    Background task to persist audit results to database.
-    
-    Args:
-        audit_result: Audit result data
-        business_id: Business identifier
-        run_id: Run identifier
-    """
-    try:
-        # This would typically save to database using the models
-        # For now, just log the persistence attempt
-        print(f"Would persist audit results for business {business_id}, run {run_id}")
-        
-        # Example of what would be saved:
-        # website_score = WebsiteScore.from_schema_data(audit_result)
-        # audit_result_model = LighthouseAuditResult.from_schema_data(audit_result)
-        # database.session.add(website_score)
-        # database.session.add(audit_result_model)
-        # database.session.commit()
-        
-    except Exception as e:
-        # Log error but don't fail the main request
-        print(f"Failed to persist audit results: {str(e)}")
-
-
-async def _persist_heuristic_results(
-    evaluation_result: dict,
-    business_id: str,
-    run_id: str
-) -> None:
-    """
-    Background task to persist heuristic evaluation results to database.
-    
-    Args:
-        evaluation_result: Heuristic evaluation result data
-        business_id: Business identifier
-        run_id: Run identifier
-    """
-    try:
-        # This would typically save to database using the models
-        # For now, just log the persistence attempt
-        print(f"Would persist heuristic evaluation results for business {business_id}, run {run_id}")
-        
-        # Example of what would be saved:
-        # heuristic_score = HeuristicScore.from_schema_data(evaluation_result)
-        # evaluation_result_model = HeuristicEvaluationResult.from_schema_data(evaluation_result)
-        # database.session.add(heuristic_score)
-        # database.session.add(evaluation_result_model)
-        # database.session.commit()
-        
-    except Exception as e:
-        # Log error but don't fail the main request
-        print(f"Failed to persist heuristic evaluation results: {str(e)}")
-
-
-async def _persist_fallback_results(
-    fallback_result: dict,
-    business_id: str,
-    run_id: str
-) -> None:
-    """
-    Background task to persist fallback scoring results to database.
-    
-    Args:
-        fallback_result: Fallback scoring result data
-        business_id: Business identifier
-        run_id: Run identifier
-    """
-    try:
-        # This would typically save to database using the models
-        # For now, just log the persistence attempt
-        print(f"Would persist fallback scoring results for business {business_id}, run {run_id}")
-        
-        # Example of what would be saved:
-        # fallback_score = FallbackScore.from_schema_data(fallback_result)
-        # database.session.add(fallback_score)
-        # database.session.commit()
-        
-    except Exception as e:
-        # Log error but don't fail the main request
-        print(f"Failed to persist fallback scoring results: {str(e)}")
+async def health_check():
+    """Health check endpoint for website scoring service."""
+    return {
+        "status": "healthy",
+        "service": "website-scoring",
+        "timestamp": time.time(),
+        "version": "2.0.0"
+    }

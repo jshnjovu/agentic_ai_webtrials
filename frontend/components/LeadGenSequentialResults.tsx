@@ -188,7 +188,7 @@ export default function LeadGenSequentialResults({
               </div>
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Phase 2: Website Scoring Results</h3>
-                <p className="text-gray-600">Performance analysis using Lighthouse API and heuristic evaluation</p>
+                <p className="text-gray-600">Performance analysis using Google PageSpeed API and heuristic evaluation</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
