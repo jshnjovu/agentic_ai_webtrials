@@ -5,6 +5,7 @@ Tests fallback detection, retry logic, quality assessment, and error handling.
 
 import pytest
 import time
+import pytest_asyncio
 from unittest.mock import Mock, patch, MagicMock
 from typing import Dict, Any
 
@@ -27,65 +28,37 @@ class TestFallbackScoringService:
         return FallbackScoringService()
     
     @pytest.fixture
-    def mock_heuristic_result(self):
-        """Mock heuristic evaluation result."""
+    def mock_comprehensive_result(self):
+        """Mock comprehensive speed analysis result."""
         return {
             "success": True,
             "scores": {
-                "trust_score": 85.0,
-                "cro_score": 72.0,
-                "mobile_score": 68.0,
-                "content_score": 78.0,
-                "social_score": 65.0,
-                "overall_heuristic_score": 73.6
+                "pagespeed_performance": 85.0,
+                "pagespeed_accessibility": 72.0,
+                "pagespeed_best_practices": 68.0,
+                "pagespeed_seo": 78.0,
+                "pingdom_trust": 65.0,
+                "pingdom_cro": 73.6,
+                "overall_score": 73.6
             },
-            "trust_signals": {
-                "has_https": True,
-                "has_privacy_policy": True,
-                "has_contact_info": True,
-                "has_about_page": False,
-                "has_terms_of_service": False,
-                "has_ssl_certificate": True,
-                "has_business_address": True,
-                "has_phone_number": True,
-                "has_email": True
+            "pagespeed_data": {
+                "performance_score": 85.0,
+                "accessibility_score": 72.0,
+                "best_practices_score": 68.0,
+                "seo_score": 78.0,
+                "first_contentful_paint": 1200.0,
+                "largest_contentful_paint": 2500.0,
+                "cumulative_layout_shift": 0.1,
+                "total_blocking_time": 150.0,
+                "speed_index": 1800.0
             },
-            "cro_elements": {
-                "has_cta_buttons": True,
-                "has_contact_forms": True,
-                "has_pricing_tables": False,
-                "has_testimonials": True,
-                "has_reviews": False,
-                "has_social_proof": True,
-                "has_urgency_elements": False,
-                "has_trust_badges": True
-            },
-            "mobile_usability": {
-                "has_viewport_meta": True,
-                "has_touch_targets": True,
-                "has_responsive_design": True,
-                "has_mobile_navigation": False,
-                "has_readable_fonts": True,
-                "has_adequate_spacing": True
-            },
-            "content_quality": {
-                "has_proper_headings": True,
-                "has_alt_text": True,
-                "has_meta_description": True,
-                "has_meta_keywords": False,
-                "has_structured_data": True,
-                "has_internal_links": True,
-                "has_external_links": False,
-                "has_blog_content": True
-            },
-            "social_proof": {
-                "has_social_media_links": True,
-                "has_customer_reviews": False,
-                "has_testimonials": True,
-                "has_case_studies": False,
-                "has_awards_certifications": True,
-                "has_partner_logos": False,
-                "has_user_generated_content": False
+            "pingdom_data": {
+                "trust_score": 65.0,
+                "cro_score": 73.6,
+                "ssl_status": "valid",
+                "response_time": 250,
+                "uptime": 99.9,
+                "security_headers": ["X-Frame-Options", "X-Content-Type-Options"]
             }
         }
     
@@ -221,42 +194,44 @@ class TestFallbackScoringService:
         
         assert result is False
     
-    def test_run_heuristic_evaluation_success(self, service, mock_heuristic_result):
-        """Test successful heuristic evaluation."""
-        with patch.object(service.heuristic_service, 'run_heuristic_evaluation', return_value=mock_heuristic_result):
-            result = service._run_heuristic_evaluation(
+    @pytest.mark.asyncio
+    async def test_run_comprehensive_analysis_success(self, service, mock_comprehensive_result):
+        """Test successful comprehensive speed analysis."""
+        with patch.object(service.comprehensive_service, 'run_comprehensive_analysis', return_value=mock_comprehensive_result):
+            result = await service._run_comprehensive_analysis(
                 "https://example.com", "business123", "run123"
             )
         
         assert result["success"] is True
-        assert result["scores"]["overall_heuristic_score"] == 73.6
+        assert result["scores"]["overall_score"] == 73.6
     
-    def test_run_heuristic_evaluation_failure(self, service):
-        """Test heuristic evaluation failure."""
+    @pytest.mark.asyncio
+    async def test_run_comprehensive_analysis_failure(self, service):
+        """Test comprehensive speed analysis failure."""
         failed_result = {
             "success": False,
-            "error": "Evaluation failed",
-            "context": "evaluation_execution"
+            "error": "Analysis failed",
+            "context": "analysis_execution"
         }
         
-        with patch.object(service.heuristic_service, 'run_heuristic_evaluation', return_value=failed_result):
-            result = service._run_heuristic_evaluation(
+        with patch.object(service.comprehensive_service, 'run_comprehensive_analysis', return_value=failed_result):
+            result = await service._run_comprehensive_analysis(
                 "https://example.com", "business123", "run123"
             )
         
         assert result["success"] is False
-        assert result["error"] == "Evaluation failed"
+        assert result["error"] == "Analysis failed"
     
-    def test_create_fallback_score_success(self, service, mock_heuristic_result):
+    def test_create_fallback_score_success(self, service, mock_comprehensive_result):
         """Test successful fallback score creation."""
         fallback_reason = "Request timed out"
         
         fallback_score = service._create_fallback_score(
-            mock_heuristic_result, fallback_reason, "run123"
+            mock_comprehensive_result, fallback_reason, "run123"
         )
         
         assert isinstance(fallback_score, FallbackScore)
-        assert fallback_score.fallback_scores["trust_score"] == 85.0
+        assert fallback_score.fallback_scores["pingdom_trust"] == 65.0
         assert fallback_score.fallback_scores["overall_score"] == 73.6
         assert fallback_score.confidence_level == ConfidenceLevel.LOW
         assert fallback_score.fallback_reason == FallbackReason.TIMEOUT
@@ -265,7 +240,7 @@ class TestFallbackScoringService:
         """Test fallback score creation with missing data."""
         incomplete_result = {
             "scores": {
-                "trust_score": 85.0
+                "pingdom_trust": 85.0
                 # Missing other scores
             }
         }
@@ -276,8 +251,8 @@ class TestFallbackScoringService:
             incomplete_result, fallback_reason, "run123"
         )
         
-        assert fallback_score.fallback_scores["trust_score"] == 85.0
-        assert fallback_score.fallback_scores["cro_score"] == 0.0  # Default value
+        assert fallback_score.fallback_scores["pingdom_trust"] == 85.0
+        assert fallback_score.fallback_scores["pingdom_cro"] == 0.0  # Default value
         assert fallback_score.fallback_scores["overall_score"] == 0.0  # Default value
     
     def test_create_fallback_reason_success(self, service):
@@ -299,28 +274,28 @@ class TestFallbackScoringService:
         assert fallback_reason.retry_attempts == 2
         assert fallback_reason.success_status is True
     
-    def test_calculate_data_completeness_high(self, service, mock_heuristic_result):
+    def test_calculate_data_completeness_high(self, service, mock_comprehensive_result):
         """Test data completeness calculation with high completeness."""
-        completeness = service._calculate_data_completeness(mock_heuristic_result)
+        completeness = service._calculate_data_completeness(mock_comprehensive_result)
     
-        # Should be moderately high (0.6842 based on mock data)
-        assert completeness > 0.65
-        assert completeness < 0.70
+        # Should be high based on mock data (all fields present)
+        assert completeness > 0.95
+        assert completeness <= 1.0
     
     def test_calculate_data_completeness_low(self, service):
         """Test data completeness calculation with low completeness."""
         low_completeness_result = {
-            "trust_signals": {"has_https": True, "has_privacy_policy": False},
-            "cro_elements": {"has_cta_buttons": False, "has_contact_forms": False},
-            "mobile_usability": {"has_viewport_meta": False, "has_touch_targets": False},
-            "content_quality": {"has_proper_headings": False, "has_alt_text": False},
-            "social_proof": {"has_social_media_links": False, "has_customer_reviews": False}
+            "scores": {
+                "pingdom_trust": 30.0,
+                "pingdom_cro": 25.0
+                # Missing other scores
+            }
         }
         
         completeness = service._calculate_data_completeness(low_completeness_result)
         
-        # Should be low since most fields are False
-        assert completeness < 20.0
+        # Should be low since most scores are missing
+        assert completeness < 0.3
     
     def test_calculate_reliability_score(self, service):
         """Test reliability score calculation."""
@@ -343,7 +318,7 @@ class TestFallbackScoringService:
         # Should be around 0.7 * 0.9 = 0.63
         assert 0.6 < adjustment < 0.7
     
-    def test_determine_quality_indicators(self, service, mock_heuristic_result):
+    def test_determine_quality_indicators(self, service, mock_comprehensive_result):
         """Test quality indicators determination."""
         fallback_score = FallbackScore(
             business_id="test_business",
@@ -352,11 +327,12 @@ class TestFallbackScoringService:
             fallback_timestamp=time.time(),
             fallback_reason=FallbackReason.TIMEOUT,
             fallback_scores={
-                "trust_score": 85.0,
-                "cro_score": 72.0,
-                "mobile_score": 68.0,
-                "content_score": 78.0,
-                "social_score": 65.0,
+                "pingdom_trust": 65.0,
+                "pingdom_cro": 73.6,
+                "pagespeed_performance": 85.0,
+                "pagespeed_accessibility": 72.0,
+                "pagespeed_best_practices": 68.0,
+                "pagespeed_seo": 78.0,
                 "overall_score": 73.6
             },
             quality_metrics=FallbackMetrics(
@@ -384,7 +360,7 @@ class TestFallbackScoringService:
         }
         
         indicators = service._determine_quality_indicators(
-            fallback_score, mock_heuristic_result, failure_analysis
+            fallback_score, mock_comprehensive_result, failure_analysis
         )
         
         assert indicators["scores_reasonable"] is True
@@ -411,11 +387,12 @@ class TestFallbackScoringService:
         assert "critical decisions" in recommendation.lower()
     
     @patch('src.services.rate_limiter.RateLimiter.can_make_request')
-    def test_run_fallback_scoring_rate_limit_exceeded(self, mock_can_make_request, service):
+    @pytest.mark.asyncio
+    async def test_run_fallback_scoring_rate_limit_exceeded(self, mock_can_make_request, service):
         """Test fallback scoring when rate limit is exceeded."""
         mock_can_make_request.return_value = (False, "Rate limit exceeded")
         
-        result = service.run_fallback_scoring(
+        result = await service.run_fallback_scoring(
             "https://example.com",
             "business123",
             "Request timed out",
@@ -428,7 +405,8 @@ class TestFallbackScoringService:
     
     @patch('src.services.rate_limiter.RateLimiter.can_make_request')
     @patch('src.services.fallback_scoring_service.FallbackScoringService._analyze_failure')
-    def test_run_fallback_scoring_no_fallback_recommended(self, mock_analyze_failure, mock_can_make_request, service):
+    @pytest.mark.asyncio
+    async def test_run_fallback_scoring_no_fallback_recommended(self, mock_analyze_failure, mock_can_make_request, service):
         """Test fallback scoring when fallback is not recommended."""
         mock_can_make_request.return_value = (True, "OK")
         mock_analyze_failure.return_value = {
@@ -436,7 +414,7 @@ class TestFallbackScoringService:
             "severity": FailureSeverity.CRITICAL
         }
         
-        result = service.run_fallback_scoring(
+        result = await service.run_fallback_scoring(
             "https://example.com",
             "business123",
             "Invalid URL",
@@ -450,23 +428,24 @@ class TestFallbackScoringService:
     @patch('src.services.rate_limiter.RateLimiter.can_make_request')
     @patch('src.services.fallback_scoring_service.FallbackScoringService._analyze_failure')
     @patch('src.services.fallback_scoring_service.FallbackScoringService._execute_retry_logic')
-    @patch('src.services.fallback_scoring_service.FallbackScoringService._run_heuristic_evaluation')
+    @patch('src.services.fallback_scoring_service.FallbackScoringService._run_comprehensive_analysis')
     @patch('src.services.fallback_scoring_service.FallbackScoringService._create_fallback_score')
     @patch('src.services.fallback_scoring_service.FallbackScoringService._create_fallback_reason')
     @patch('src.services.fallback_scoring_service.FallbackScoringService._assess_fallback_quality')
     @patch('src.services.rate_limiter.RateLimiter.record_request')
-    def test_run_fallback_scoring_success(
+    @pytest.mark.asyncio
+    async def test_run_fallback_scoring_success(
         self,
         mock_record_request,
         mock_assess_quality,
         mock_create_reason,
         mock_create_score,
-        mock_run_heuristic,
+        mock_run_comprehensive,
         mock_execute_retry,
         mock_analyze_failure,
         mock_can_make_request,
         service,
-        mock_heuristic_result
+        mock_comprehensive_result
     ):
         """Test successful fallback scoring execution."""
         # Setup mocks
@@ -477,7 +456,7 @@ class TestFallbackScoringService:
             "retry_count": 2
         }
         mock_execute_retry.return_value = 1
-        mock_run_heuristic.return_value = mock_heuristic_result
+        mock_run_comprehensive.return_value = mock_comprehensive_result
         
         mock_fallback_score = FallbackScore(
             business_id="business123",
@@ -486,11 +465,12 @@ class TestFallbackScoringService:
             fallback_timestamp=time.time(),
             fallback_reason=FallbackReason.TIMEOUT,
             fallback_scores={
-                "trust_score": 85.0,
-                "cro_score": 72.0,
-                "mobile_score": 68.0,
-                "content_score": 78.0,
-                "social_score": 65.0,
+                "pingdom_trust": 65.0,
+                "pingdom_cro": 73.6,
+                "pagespeed_performance": 85.0,
+                "pagespeed_accessibility": 72.0,
+                "pagespeed_best_practices": 68.0,
+                "pagespeed_seo": 78.0,
                 "overall_score": 73.6
             },
             quality_metrics=FallbackMetrics(
@@ -533,7 +513,7 @@ class TestFallbackScoringService:
         mock_assess_quality.return_value = mock_fallback_quality
         
         # Execute fallback scoring
-        result = service.run_fallback_scoring(
+        result = await service.run_fallback_scoring(
             "https://example.com",
             "business123",
             "Request timed out",
@@ -554,7 +534,7 @@ class TestFallbackScoringService:
         mock_can_make_request.assert_called_once_with("fallback", "run123")
         mock_analyze_failure.assert_called_once_with("Request timed out")
         mock_execute_retry.assert_called_once()
-        mock_run_heuristic.assert_called_once()
+        mock_run_comprehensive.assert_called_once()
         mock_create_score.assert_called_once()
         mock_create_reason.assert_called_once()
         mock_assess_quality.assert_called_once()

@@ -1,17 +1,15 @@
 """
-Website scoring API endpoints for PageSpeed analysis, heuristic evaluation and fallback scoring.
-Provides endpoints for website analysis using Google PageSpeed API and heuristic evaluation.
+Website scoring API endpoints for comprehensive speed analysis using PageSpeed and Pingdom.
+Provides endpoints for website analysis using Google PageSpeed API and comprehensive speed evaluation.
 """
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime
 import uuid
 import time
 
 from src.schemas.website_scoring import (
-    HeuristicEvaluationRequest,
-    HeuristicEvaluationResponse,
-    HeuristicEvaluationError,
     WebsiteScoringSummary,
     AuditStrategy,
     ConfidenceLevel,
@@ -26,7 +24,7 @@ from src.schemas.website_scoring import (
     PageSpeedAuditResponse,
     PageSpeedAuditError
 )
-from src.services.heuristic_evaluation_service import HeuristicEvaluationService
+from src.services.comprehensive_speed_service import ComprehensiveSpeedService
 from src.services.score_validation_service import ScoreValidationService
 from src.services.fallback_scoring_service import FallbackScoringService
 from src.services.google_pagespeed_service import GooglePageSpeedService
@@ -37,9 +35,9 @@ from src.utils.score_calculation import calculate_overall_score, get_score_insig
 router = APIRouter(prefix="/website-scoring", tags=["website-scoring"])
 
 
-def get_heuristic_evaluation_service() -> HeuristicEvaluationService:
-    """Dependency to get HeuristicEvaluationService instance."""
-    return HeuristicEvaluationService()
+def get_comprehensive_speed_service() -> ComprehensiveSpeedService:
+    """Dependency to get ComprehensiveSpeedService instance."""
+    return ComprehensiveSpeedService()
 
 
 def get_score_validation_service() -> ScoreValidationService:
@@ -86,7 +84,7 @@ async def run_pagespeed_audit(
             )
         
         # Run PageSpeed audit
-        audit_result = service.run_pagespeed_audit(
+        audit_result = await service.run_pagespeed_audit(
             website_url=request.website_url,
             business_id=request.business_id,
             run_id=request.run_id,
@@ -129,6 +127,52 @@ async def run_pagespeed_audit(
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error during PageSpeed audit: {str(e)}"
+        )
+
+
+@router.post("/pagespeed/batch")
+async def run_batch_pagespeed_audits(
+    requests: List[PageSpeedAuditRequest],
+    service: GooglePageSpeedService = Depends(get_pagespeed_service)
+):
+    """
+    Run multiple PageSpeed audits concurrently.
+    
+    Args:
+        requests: List of PageSpeed audit requests
+        service: PageSpeed service instance
+        
+    Returns:
+        List of PageSpeed audit responses
+    """
+    try:
+        # Convert requests to the format expected by batch method
+        audit_requests = [
+            {
+                'website_url': req.website_url,
+                'business_id': req.business_id,
+                'run_id': req.run_id,
+                'strategy': req.strategy,
+                'categories': req.categories
+            }
+            for req in requests
+        ]
+        
+        # Run batch audits
+        results = await service.run_batch_pagespeed_audits(audit_requests)
+        
+        return {
+            "success": True,
+            "total_requests": len(requests),
+            "successful_audits": sum(1 for r in results if r.get("success", False)),
+            "failed_audits": sum(1 for r in results if not r.get("success", False)),
+            "results": results
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error during batch PageSpeed audit: {str(e)}"
         )
 
 
@@ -197,125 +241,212 @@ async def pagespeed_health_check(
     }
 
 
-@router.post("/heuristic", response_model=HeuristicEvaluationResponse)
-async def run_heuristic_evaluation(
-    request: HeuristicEvaluationRequest,
-    service: HeuristicEvaluationService = Depends(get_heuristic_evaluation_service)
-) -> HeuristicEvaluationResponse:
+@router.post("/comprehensive", response_model=dict)
+async def run_comprehensive_analysis(
+    request: dict,
+    service: ComprehensiveSpeedService = Depends(get_comprehensive_speed_service)
+) -> dict:
     """
-    Run a heuristic evaluation for website analysis.
+    Run comprehensive website analysis combining PageSpeed and Pingdom data.
     
     Args:
-        request: Heuristic evaluation request with website URL and parameters
-        service: Heuristic evaluation service instance
+        request: Comprehensive analysis request with website URL and parameters
+        service: Comprehensive speed service instance
         
     Returns:
-        Heuristic evaluation response with analysis scores and metrics
+        Comprehensive analysis response with all scores and metrics
     """
     try:
         # Validate request
-        if not service.validate_input(request.dict()):
+        if not service.validate_input(request):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid heuristic evaluation request"
+                detail="Invalid comprehensive analysis request"
             )
         
-        # Run heuristic evaluation
-        evaluation_result = service.run_heuristic_evaluation(
-            website_url=request.website_url,
-            business_id=request.business_id,
-            run_id=request.run_id
+        # Run comprehensive analysis
+        analysis_result = await service.run_comprehensive_analysis(
+            website_url=request["website_url"],
+            business_id=request["business_id"],
+            run_id=request.get("run_id"),
+            strategy=request.get("strategy", "mobile"),
+            include_pingdom=request.get("include_pingdom", True)
         )
         
-        if not evaluation_result.get("success", False):
-            error_response = HeuristicEvaluationError(
-                success=False,
-                error=evaluation_result.get("error", "Unknown error"),
-                error_code=evaluation_result.get("error_code", "EVALUATION_FAILED"),
-                context=evaluation_result.get("context", "heuristic_evaluation"),
-                run_id=request.run_id,
-                business_id=request.business_id
-            )
+        if not analysis_result.get("success", False):
             raise HTTPException(
                 status_code=500,
-                detail=error_response.dict()
+                detail={
+                    "success": False,
+                    "error": analysis_result.get("error", "Unknown error"),
+                    "error_code": analysis_result.get("error_code", "ANALYSIS_FAILED"),
+                    "context": analysis_result.get("context", "comprehensive_analysis")
+                }
             )
         
-        # Convert to response model
-        response = HeuristicEvaluationResponse(
-            success=True,
-            website_url=evaluation_result["website_url"],
-            business_id=evaluation_result["business_id"],
-            run_id=evaluation_result["run_id"],
-            evaluation_timestamp=evaluation_result["evaluation_timestamp"],
-            scores=evaluation_result["scores"],
-            trust_signals=evaluation_result["trust_signals"],
-            cro_elements=evaluation_result["cro_elements"],
-            mobile_usability=evaluation_result["mobile_usability"],
-            content_quality=evaluation_result["content_quality"],
-            social_proof=evaluation_result["social_proof"],
-            confidence=evaluation_result["confidence"],
-            raw_data=evaluation_result.get("raw_data", {})
-        )
-        
-        return response
+        return analysis_result
         
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during heuristic evaluation: {str(e)}"
+            detail=f"Internal server error during comprehensive analysis: {str(e)}"
         )
 
 
-@router.get("/heuristic/{business_id}/summary", response_model=WebsiteScoringSummary)
-async def get_heuristic_summary(
-    business_id: str,
-    service: HeuristicEvaluationService = Depends(get_heuristic_evaluation_service)
-) -> WebsiteScoringSummary:
+@router.post("/hybrid", response_model=dict)
+async def run_hybrid_audit(
+    request: dict,
+    service: ComprehensiveSpeedService = Depends(get_comprehensive_speed_service)
+) -> dict:
     """
-    Get heuristic evaluation summary for a business.
+    Run hybrid audit combining PageSpeed and Pingdom data.
+    
+    Args:
+        request: Hybrid audit request with website URL and parameters
+        service: Comprehensive speed service instance
+        
+    Returns:
+        Hybrid audit response with combined scores
+    """
+    try:
+        # Validate request
+        if not service.validate_input(request):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid hybrid audit request"
+            )
+        
+        # Run hybrid audit
+        audit_result = await service.run_hybrid_audit(
+            website_url=request["website_url"],
+            business_id=request["business_id"],
+            run_id=request.get("run_id"),
+            strategy=request.get("strategy", "mobile")
+        )
+        
+        if not audit_result.get("success", False):
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "success": False,
+                    "error": audit_result.get("error", "Unknown error"),
+                    "error_code": audit_result.get("error_code", "HYBRID_AUDIT_FAILED"),
+                    "context": audit_result.get("context", "hybrid_audit")
+                }
+            )
+        
+        return audit_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error during hybrid audit: {str(e)}"
+        )
+
+
+@router.get("/health")
+async def get_service_health(
+    service: ComprehensiveSpeedService = Depends(get_comprehensive_speed_service)
+) -> dict:
+    """
+    Get comprehensive speed service health status.
+    
+    Returns:
+        Service health information
+    """
+    try:
+        health_status = service.get_service_health()
+        return {
+            "success": True,
+            "service": "comprehensive_speed",
+            "health": health_status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "service": "comprehensive_speed",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@router.post("/comprehensive/batch")
+async def run_batch_comprehensive_analysis(
+    requests: List[dict],
+    service: ComprehensiveSpeedService = Depends(get_comprehensive_speed_service)
+):
+    """
+    Run multiple comprehensive analyses concurrently.
+    
+    Args:
+        requests: List of comprehensive analysis requests
+        service: Comprehensive speed service instance
+        
+    Returns:
+        List of comprehensive analysis responses
+    """
+    try:
+        # Run batch analyses
+        results = await service.run_batch_analysis(
+            analysis_requests=requests,
+            max_concurrent=3,
+            include_pingdom=True
+        )
+        
+        return {
+            "success": True,
+            "total_requests": len(requests),
+            "successful_analyses": sum(1 for r in results if r.get("success", False)),
+            "failed_analyses": sum(1 for r in results if not r.get("success", False)),
+            "results": results
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error during batch comprehensive analysis: {str(e)}"
+        )
+
+
+@router.get("/comprehensive/{business_id}/summary", response_model=dict)
+async def get_comprehensive_summary(
+    business_id: str,
+    service: ComprehensiveSpeedService = Depends(get_comprehensive_speed_service)
+) -> dict:
+    """
+    Get comprehensive analysis summary for a business.
     
     Args:
         business_id: Business identifier
-        service: Heuristic evaluation service instance
+        service: Comprehensive speed service instance
         
     Returns:
-        Website scoring summary with heuristic results
+        Comprehensive analysis summary with results
     """
     try:
-        # Get heuristic evaluation history
-        evaluation_history = service.get_evaluation_history(business_id)
-        
-        if not evaluation_history:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No heuristic evaluations found for business: {business_id}"
-            )
-        
-        # Calculate summary statistics
-        total_evaluations = len(evaluation_history)
-        successful_evaluations = sum(1 for eval in evaluation_history if eval.get("success", False))
-        average_score = sum(eval.get("scores", {}).get("overall", 0) for eval in evaluation_history) / total_evaluations
-        
-        summary = WebsiteScoringSummary(
-            business_id=business_id,
-            total_evaluations=total_evaluations,
-            successful_evaluations=successful_evaluations,
-            average_score=average_score,
-            last_evaluation=evaluation_history[-1] if evaluation_history else None,
-            evaluation_history=evaluation_history
-        )
+        # For now, return a placeholder summary
+        # In production, this would query a database for analysis history
+        summary = {
+            "business_id": business_id,
+            "total_analyses": 0,
+            "successful_analyses": 0,
+            "average_overall_score": 0.0,
+            "last_analysis": None,
+            "analysis_history": [],
+            "message": "Comprehensive analysis summary endpoint - implementation pending"
+        }
         
         return summary
         
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error getting heuristic summary: {str(e)}"
+            detail=f"Internal server error getting comprehensive summary: {str(e)}"
         )
 
 
@@ -344,8 +475,8 @@ async def validate_website_scores(
         
         # Run score validation
         validation_result = service.validate_scores(
-            heuristic_scores=request.heuristic_scores,
-            heuristic_weight=1.0,  # Only heuristic scores now
+            heuristic_scores=[],  # No heuristic scores in new system
+            heuristic_weight=0.0,  # No heuristic weight
             business_id=request.business_id,
             run_id=request.run_id
         )

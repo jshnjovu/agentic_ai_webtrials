@@ -12,14 +12,14 @@ from datetime import datetime
 from src.services.google_places_service import GooglePlacesService
 from src.services.yelp_fusion_service import YelpFusionService
 from src.services.google_pagespeed_service import GooglePageSpeedService
-from src.services.heuristic_evaluation_service import HeuristicEvaluationService
+from src.services.comprehensive_speed_service import ComprehensiveSpeedService
 from src.services.score_validation_service import ScoreValidationService
 from src.services.fallback_scoring_service import FallbackScoringService
 from src.services.website_template_service import WebsiteTemplateService
 from src.services.demo_hosting_service import DemoHostingService
 from src.services.ai_content_generation_service import AIContentGenerationService
 from src.schemas.business_search import BusinessSearchRequest
-# WebsiteScoringRequest not available, using HeuristicEvaluationRequest instead
+# WebsiteScoringRequest not available, using ComprehensiveSpeedRequest instead
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class LeadGenToolExecutor:
         self.google_places_service = GooglePlacesService()
         self.yelp_service = YelpFusionService()
         self.pagespeed_service = GooglePageSpeedService()
-        self.heuristic_service = HeuristicEvaluationService()
+        self.comprehensive_speed_service = ComprehensiveSpeedService()
         self.score_validation_service = ScoreValidationService()
         self.fallback_scoring_service = FallbackScoringService()
         self.template_service = WebsiteTemplateService()
@@ -323,7 +323,7 @@ class LeadGenToolExecutor:
     
     async def _score_websites(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Score business websites using Epic 2 services: Lighthouse, Heuristics, and Score Validation
+        Score business websites using Epic 2 services: Lighthouse, Comprehensive Speed Analysis, and Score Validation
         """
         
         businesses = arguments["businesses"]
@@ -361,30 +361,31 @@ class LeadGenToolExecutor:
                                 "confidence_level": "high"
                             })
                             
-                            # Step 2: Run heuristic evaluation for additional insights
+                            # Step 2: Run comprehensive speed analysis for additional insights
                             try:
-                                heuristic_result = await self.heuristic_service.evaluate_website(
+                                comprehensive_result = await self.comprehensive_speed_service.run_comprehensive_analysis(
                                     website_url=business["website"],
                                     business_id=business.get("business_id", "unknown"),
                                     run_id=arguments.get("run_id")
                                 )
                                 
-                                if heuristic_result.get("success"):
-                                    heuristic_scores = heuristic_result.get("scores", {})
+                                if comprehensive_result.get("success"):
+                                    comprehensive_scores = comprehensive_result.get("scores", {})
                                     scored_business.update({
-                                        "heuristic_trust": heuristic_scores.get("trust_score", 0),
-                                        "heuristic_cro": heuristic_scores.get("cro_score", 0),
-                                        "heuristic_mobile": heuristic_scores.get("mobile_score", 0),
-                                        "heuristic_content": heuristic_scores.get("content_score", 0),
-                                        "heuristic_social": heuristic_scores.get("social_score", 0),
-                                        "heuristic_overall": heuristic_scores.get("overall_score", 0)
+                                        "pingdom_trust": comprehensive_scores.get("pingdom_trust", 0),
+                                        "pingdom_cro": comprehensive_scores.get("pingdom_cro", 0),
+                                        "pagespeed_performance": comprehensive_scores.get("pagespeed_performance", 0),
+                                        "pagespeed_accessibility": comprehensive_scores.get("pagespeed_accessibility", 0),
+                                        "pagespeed_best_practices": comprehensive_scores.get("pagespeed_best_practices", 0),
+                                        "pagespeed_seo": comprehensive_scores.get("pagespeed_seo", 0),
+                                        "overall_score": comprehensive_scores.get("overall_score", 0)
                                     })
                                     
                                     # Step 3: Run score validation for confidence assessment
                                     try:
                                         validation_result = await self.score_validation_service.validate_scores(
                                             lighthouse_scores=[scored_business],
-                                            heuristic_scores=[heuristic_scores],
+                                            comprehensive_scores=[comprehensive_scores],
                                             business_id=business.get("business_id", "unknown"),
                                             run_id=arguments.get("run_id")
                                         )
@@ -401,9 +402,9 @@ class LeadGenToolExecutor:
                                         logger.warning(f"Score validation failed for {business['website']}: {validation_error}")
                                         scored_business["validation_confidence"] = "medium"
                                         
-                            except Exception as heuristic_error:
-                                logger.warning(f"Heuristic evaluation failed for {business['website']}: {heuristic_error}")
-                                scored_business["heuristic_overall"] = 0
+                            except Exception as comprehensive_error:
+                                logger.warning(f"Comprehensive speed analysis failed for {business['website']}: {comprehensive_error}")
+                                scored_business["overall_score"] = 0
                                 
                         else:
                             # PageSpeed failed - use fallback scoring service
@@ -424,7 +425,7 @@ class LeadGenToolExecutor:
                                     "score_seo": fallback_scores.get("seo_score", 0),
                                     "score_trust": fallback_scores.get("best_practices_score", 0),
                                     "score_overall": fallback_scores.get("overall_score", 0),
-                                    "scoring_method": "fallback_heuristics",
+                                    "scoring_method": "fallback_comprehensive",
                                     "confidence_level": "medium",
                                     "fallback_reason": pagespeed_result.get("error"),
                                     "fallback_quality": fallback_result.get("quality_metrics", {})
@@ -479,12 +480,12 @@ class LeadGenToolExecutor:
                         if scored_business.get("score_trust", 0) < 60:
                             issues.append(f"Trust signals missing ({scored_business['score_trust']}/100)")
                         
-                        # Add heuristic-specific issues if available
-                        if scored_business.get("heuristic_trust", 0) < 60:
+                        # Add comprehensive speed analysis issues if available
+                        if scored_business.get("pingdom_trust", 0) < 60:
                             issues.append("Missing trust signals (privacy policy, contact info)")
-                        if scored_business.get("heuristic_cro", 0) < 60:
+                        if scored_business.get("pingdom_cro", 0) < 60:
                             issues.append("Conversion optimization elements needed")
-                        if scored_business.get("heuristic_mobile", 0) < 60:
+                        if scored_business.get("pagespeed_accessibility", 0) < 60:
                             issues.append("Mobile usability improvements required")
                         
                         scored_business["top_issues"] = issues[:3]  # Top 3 issues

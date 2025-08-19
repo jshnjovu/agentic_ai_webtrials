@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ..core.base_service import BaseService
-from ..models.website_scoring import WebsiteScore, HeuristicScore
+from ..models.website_scoring import WebsiteScore
 from ..schemas.website_scoring import ScoreValidationResult, ValidationMetrics, IssuePriority, IssuePriorityDetails, IssueCategory, FinalScore
 
 
@@ -26,7 +26,7 @@ class IssueCategory(str, Enum):
 @dataclass
 class ScoreData:
     lighthouse_score: float
-    heuristic_score: float
+    comprehensive_score: float
     category: str
     weight: float = 1.0
 
@@ -39,9 +39,9 @@ class ScoreValidationService(BaseService):
     
     def __init__(self):
         super().__init__("ScoreValidationService")
-        # Default weights: Lighthouse 80%, Heuristics 20%
+        # Default weights: Lighthouse 80%, Comprehensive 20%
         self.lighthouse_weight = 0.8
-        self.heuristic_weight = 0.2
+        self.comprehensive_weight = 0.2
         self.confidence_thresholds = {
             "high": 0.8,
             "medium": 0.6,
@@ -54,7 +54,7 @@ class ScoreValidationService(BaseService):
             if not isinstance(data, dict):
                 return False
             
-            required_fields = ['business_id', 'run_id', 'lighthouse_scores', 'heuristic_scores']
+            required_fields = ['business_id', 'run_id', 'lighthouse_scores', 'comprehensive_scores']
             for field in required_fields:
                 if field not in data:
                     return False
@@ -64,7 +64,7 @@ class ScoreValidationService(BaseService):
                 return False
             
             # Validate scores are lists
-            if not isinstance(data['lighthouse_scores'], list) or not isinstance(data['heuristic_scores'], list):
+            if not isinstance(data['lighthouse_scores'], list) or not isinstance(data['comprehensive_scores'], list):
                 return False
             
             return True
@@ -75,7 +75,7 @@ class ScoreValidationService(BaseService):
     async def validate_scores(
         self,
         lighthouse_scores: List[WebsiteScore],
-        heuristic_scores: List[HeuristicScore],
+        comprehensive_scores: List[dict],
         business_id: str,
         run_id: str
     ) -> ScoreValidationResult:
@@ -84,7 +84,7 @@ class ScoreValidationService(BaseService):
         
         Args:
             lighthouse_scores: List of Lighthouse scoring results
-            heuristic_scores: List of heuristic scoring results
+            comprehensive_scores: List of comprehensive scoring results
             business_id: Business identifier
             run_id: Processing run identifier
             
@@ -95,16 +95,16 @@ class ScoreValidationService(BaseService):
             self.log_operation("Starting score validation", run_id, business_id)
             
             # Step 1: Score consistency checking
-            consistency_result = self._check_score_consistency(lighthouse_scores, heuristic_scores)
+            consistency_result = self._check_score_consistency(lighthouse_scores, comprehensive_scores)
             
             # Step 2: Calculate confidence level
             confidence_level = self._calculate_confidence_level(consistency_result)
             
             # Step 3: Detect discrepancies
-            discrepancies = self._detect_discrepancies(lighthouse_scores, heuristic_scores)
+            discrepancies = self._detect_discrepancies(lighthouse_scores, comprehensive_scores)
             
             # Step 4: Calculate weighted final score
-            final_score = self._calculate_weighted_final_score(lighthouse_scores, heuristic_scores)
+            final_score = self._calculate_weighted_final_score(lighthouse_scores, comprehensive_scores)
             
             # Step 5: Create issue prioritization
             issue_priorities = self._create_issue_priorities(discrepancies, consistency_result)
@@ -126,7 +126,7 @@ class ScoreValidationService(BaseService):
                 weighted_final_score=final_score,
                 confidence_level=confidence_level,
                 lighthouse_weight=0.8,
-                heuristic_weight=0.2,
+                comprehensive_weight=0.2,
                 discrepancy_flags=[],
                 issue_priorities=issue_priorities,
                 validation_status="completed",
@@ -156,10 +156,10 @@ class ScoreValidationService(BaseService):
     def _check_score_consistency(
         self,
         lighthouse_scores: List[WebsiteScore],
-        heuristic_scores: List[HeuristicScore]
+        comprehensive_scores: List[dict]
     ) -> Dict:
         """
-        Check consistency between Lighthouse and heuristic scores.
+        Check consistency between Lighthouse and comprehensive scores.
         
         Returns:
             Dictionary with correlation, significance, variance, and reliability metrics
@@ -167,9 +167,9 @@ class ScoreValidationService(BaseService):
         try:
             # Extract scores for correlation analysis
             lighthouse_values = [score.overall_score if hasattr(score, 'overall_score') else score.overall for score in lighthouse_scores]
-            heuristic_values = [score.overall_heuristic_score if hasattr(score, 'overall_heuristic_score') else score.overall_heuristic_score for score in heuristic_scores]
+            comprehensive_values = [score.get('overall_score', 0.0) for score in comprehensive_scores]
             
-            if not lighthouse_values or not heuristic_values:
+            if not lighthouse_values or not comprehensive_values:
                 return {
                     "correlation": 0.0,
                     "significance": 0.0,
@@ -178,13 +178,13 @@ class ScoreValidationService(BaseService):
                 }
             
             # Calculate Pearson correlation coefficient
-            correlation = self._calculate_pearson_correlation(lighthouse_values, heuristic_values)
+            correlation = self._calculate_pearson_correlation(lighthouse_values, comprehensive_values)
             
             # Calculate statistical significance (simplified approach)
             significance = self._calculate_statistical_significance(correlation, len(lighthouse_values))
             
             # Calculate variance analysis
-            variance = self._calculate_variance_analysis(lighthouse_values, heuristic_values)
+            variance = self._calculate_variance_analysis(lighthouse_values, comprehensive_values)
             
             # Calculate reliability indicator
             reliability = self._calculate_reliability_indicator(correlation, significance, variance)
@@ -307,9 +307,9 @@ class ScoreValidationService(BaseService):
     def _detect_discrepancies(
         self,
         lighthouse_scores: List[WebsiteScore],
-        heuristic_scores: List[HeuristicScore]
+        comprehensive_scores: List[dict]
     ) -> List[Dict]:
-        """Detect discrepancies between Lighthouse and heuristic scores."""
+        """Detect discrepancies between Lighthouse and comprehensive scores."""
         try:
             discrepancies = []
             
@@ -323,28 +323,28 @@ class ScoreValidationService(BaseService):
                     key = "default"  # Use default key for schema classes
                 lighthouse_lookup[key] = score.overall_score if hasattr(score, 'overall_score') else score.overall
             
-            heuristic_lookup = {}
-            for score in heuristic_scores:
+            comprehensive_lookup = {}
+            for score in comprehensive_scores:
                 if hasattr(score, 'website_url'):
                     key = score.website_url
                 else:
                     key = "default"  # Use default key for schema classes
-                heuristic_lookup[key] = score.overall_heuristic_score if hasattr(score, 'overall_heuristic_score') else score.overall_heuristic_score
+                comprehensive_lookup[key] = score.get('overall_score', 0.0)
             
             # Check for score differences
-            for key in set(lighthouse_lookup.keys()) | set(heuristic_lookup.keys()):
+            for key in set(lighthouse_lookup.keys()) | set(comprehensive_lookup.keys()):
                 lighthouse_score = lighthouse_lookup.get(key, 0.0)
-                heuristic_score = heuristic_lookup.get(key, 0.0)
+                comprehensive_score = comprehensive_lookup.get(key, 0.0)
                 
                 # Calculate difference
-                difference = abs(lighthouse_score - heuristic_score)
+                difference = abs(lighthouse_score - comprehensive_score)
                 
                 # Flag as discrepancy if difference > 20 points
                 if difference > 20.0:
                     discrepancies.append({
                         "category": "overall",
                         "lighthouse_score": lighthouse_score,
-                        "heuristic_score": heuristic_score,
+                        "comprehensive_score": comprehensive_score,
                         "difference": difference,
                         "severity": "high" if difference > 40.0 else "medium"
                     })
@@ -358,11 +358,11 @@ class ScoreValidationService(BaseService):
     def _calculate_weighted_final_score(
         self,
         lighthouse_scores: List[WebsiteScore],
-        heuristic_scores: List[HeuristicScore]
+        comprehensive_scores: List[dict]
     ) -> float:
         """Calculate weighted final score combining both scoring methods."""
         try:
-            if not lighthouse_scores and not heuristic_scores:
+            if not lighthouse_scores and not comprehensive_scores:
                 return 0.0
             
             # Calculate average scores
@@ -370,15 +370,15 @@ class ScoreValidationService(BaseService):
                 statistics.mean([score.overall_score if hasattr(score, 'overall_score') else score.overall for score in lighthouse_scores])
                 if lighthouse_scores else 0.0
             )
-            heuristic_avg = (
-                statistics.mean([score.overall_heuristic_score if hasattr(score, 'overall_heuristic_score') else score.overall_heuristic_score for score in heuristic_scores])
-                if heuristic_scores else 0.0
+            comprehensive_avg = (
+                statistics.mean([score.get('overall_score', 0.0) for score in comprehensive_scores])
+                if comprehensive_scores else 0.0
             )
             
             # Apply weights
             weighted_score = (
                 lighthouse_avg * self.lighthouse_weight +
-                heuristic_avg * self.heuristic_weight
+                comprehensive_avg * self.comprehensive_weight
             )
             
             return max(0.0, min(100.0, weighted_score))

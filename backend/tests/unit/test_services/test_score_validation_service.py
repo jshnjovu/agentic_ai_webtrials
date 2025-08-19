@@ -20,7 +20,6 @@ from src.schemas.website_scoring import (
 )
 from src.schemas.website_scoring import (
     WebsiteScore,
-    HeuristicScore,
     ScoreValidationResult,
     ValidationMetrics,
     IssuePriority,
@@ -57,43 +56,45 @@ class TestScoreValidationService:
         ]
     
     @pytest.fixture
-    def sample_heuristic_scores(self):
-        """Create sample heuristic scores for testing."""
+    def sample_comprehensive_scores(self):
+        """Create sample comprehensive speed scores for testing."""
         return [
-            HeuristicScore(
-                trust_score=88.0,
-                cro_score=85.0,
-                mobile_score=90.0,
-                content_score=87.0,
-                social_score=89.0,
-                overall_heuristic_score=87.8,
-                confidence_level=ConfidenceLevel.HIGH
-            ),
-            HeuristicScore(
-                trust_score=80.0,
-                cro_score=82.0,
-                mobile_score=85.0,
-                content_score=83.0,
-                social_score=86.0,
-                overall_heuristic_score=83.2,
-                confidence_level=ConfidenceLevel.HIGH
-            )
+            {
+                "pagespeed_performance": 88.0,
+                "pagespeed_accessibility": 85.0,
+                "pagespeed_best_practices": 90.0,
+                "pagespeed_seo": 87.0,
+                "pingdom_trust": 89.0,
+                "pingdom_cro": 87.8,
+                "overall_score": 87.8,
+                "confidence_level": ConfidenceLevel.HIGH
+            },
+            {
+                "pagespeed_performance": 80.0,
+                "pagespeed_accessibility": 82.0,
+                "pagespeed_best_practices": 85.0,
+                "pagespeed_seo": 83.0,
+                "pingdom_trust": 86.0,
+                "pingdom_cro": 83.2,
+                "overall_score": 83.2,
+                "confidence_level": ConfidenceLevel.HIGH
+            }
         ]
     
     def test_service_initialization(self, service):
         """Test that the service initializes with correct default values."""
         assert service.lighthouse_weight == 0.8
-        assert service.heuristic_weight == 0.2
+        assert service.comprehensive_weight == 0.2
         assert service.confidence_thresholds["high"] == 0.8
         assert service.confidence_thresholds["medium"] == 0.6
         assert service.confidence_thresholds["low"] == 0.0
     
     @pytest.mark.asyncio
-    async def test_validate_scores_success(self, service, sample_lighthouse_scores, sample_heuristic_scores):
+    async def test_validate_scores_success(self, service, sample_lighthouse_scores, sample_comprehensive_scores):
         """Test successful score validation with complete data."""
         result = await service.validate_scores(
             lighthouse_scores=sample_lighthouse_scores,
-            heuristic_scores=sample_heuristic_scores,
+            comprehensive_scores=sample_comprehensive_scores,
             business_id="test_business",
             run_id="test_run"
         )
@@ -113,7 +114,7 @@ class TestScoreValidationService:
         """Test score validation with empty data sets."""
         result = await service.validate_scores(
             lighthouse_scores=[],
-            heuristic_scores=[],
+            comprehensive_scores=[],
             business_id="test_business",
             run_id="test_run"
         )
@@ -209,31 +210,31 @@ class TestScoreValidationService:
         confidence = service._calculate_confidence_level(consistency_result)
         assert confidence == ConfidenceLevel.LOW
     
-    def test_discrepancy_detection(self, service, sample_lighthouse_scores, sample_heuristic_scores):
+    def test_discrepancy_detection(self, service, sample_lighthouse_scores, sample_comprehensive_scores):
         """Test discrepancy detection between scoring methods."""
-        discrepancies = service._detect_discrepancies(sample_lighthouse_scores, sample_heuristic_scores)
+        discrepancies = service._detect_discrepancies(sample_lighthouse_scores, sample_comprehensive_scores)
         
         assert isinstance(discrepancies, list)
         # Should detect some discrepancies if scores differ significantly
         for discrepancy in discrepancies:
             assert "category" in discrepancy
             assert "lighthouse_score" in discrepancy
-            assert "heuristic_score" in discrepancy
+            assert "comprehensive_score" in discrepancy
             assert "difference" in discrepancy
             assert "severity" in discrepancy
             assert discrepancy["severity"] in ["high", "medium"]
     
-    def test_weighted_final_score_calculation(self, service, sample_lighthouse_scores, sample_heuristic_scores):
+    def test_weighted_final_score_calculation(self, service, sample_lighthouse_scores, sample_comprehensive_scores):
         """Test weighted final score calculation."""
-        final_score = service._calculate_weighted_final_score(sample_lighthouse_scores, sample_heuristic_scores)
+        final_score = service._calculate_weighted_final_score(sample_lighthouse_scores, sample_comprehensive_scores)
         
         assert isinstance(final_score, float)
         assert final_score >= 0.0 and final_score <= 100.0
         
-        # Should be weighted average: 80% lighthouse + 20% heuristic
+        # Should be weighted average: 80% lighthouse + 20% comprehensive
         expected_lighthouse_avg = (88.75 + 83.25) / 2
-        expected_heuristic_avg = (87.8 + 83.2) / 2
-        expected_weighted = expected_lighthouse_avg * 0.8 + expected_heuristic_avg * 0.2
+        expected_comprehensive_avg = (87.8 + 83.2) / 2
+        expected_weighted = expected_lighthouse_avg * 0.8 + expected_comprehensive_avg * 0.2
         
         assert abs(final_score - expected_weighted) < 1.0
     

@@ -32,7 +32,7 @@ class SerpAPIService(BaseService):
         """Validate input data for the service."""
         return isinstance(data, BusinessSearchRequest)
     
-    def search_businesses(self, request: BusinessSearchRequest) -> BusinessSearchResponse | BusinessSearchError:
+    async def search_businesses(self, request: BusinessSearchRequest) -> BusinessSearchResponse | BusinessSearchError:
         """Search for businesses using SerpAPI."""
         try:
             self.log_operation(
@@ -51,8 +51,8 @@ class SerpAPIService(BaseService):
                     run_id=request.run_id
                 )
             
-            # Build search parameters
-            search_params = self._build_search_params(request)
+            # Build search parameters (async)
+            search_params = await self._build_search_params(request)
             
             # Execute search
             search_result = self._execute_search(search_params, request.run_id)
@@ -99,10 +99,10 @@ class SerpAPIService(BaseService):
                 run_id=request.run_id
             )
     
-    def _build_search_params(self, request: BusinessSearchRequest) -> Dict[str, Any]:
+    async def _build_search_params(self, request: BusinessSearchRequest) -> Dict[str, Any]:
         """Build SerpAPI search parameters - exactly matching SERPAPI.md pattern."""
-        # Extract country code from location using Geoapify
-        country_code = self.geoapify_service.extract_country_code(request.location)
+        # Extract country code from location using Geoapify (async)
+        country_code = await self.geoapify_service.extract_country_code(request.location)
         
         # Use extracted country code or fallback to "us"
         gl_param = country_code if country_code else "us"
@@ -183,6 +183,11 @@ class SerpAPIService(BaseService):
         
         for i, place in enumerate(raw_results[:max_results]):
             try:
+                # Debug logging to see raw data
+                self.logger.info(f"Processing place {i+1}: {place.get('title', 'Unknown')}")
+                self.logger.info(f"Raw address field: {place.get('address')}")
+                self.logger.info(f"Raw place data keys: {list(place.keys())}")
+                
                 # Extract website from links
                 website = None
                 if 'links' in place and isinstance(place['links'], dict):
@@ -217,7 +222,7 @@ class SerpAPIService(BaseService):
                 processed_businesses.append(business)
                 
             except Exception as e:
-                self.log_error(e, f"processing_business_resul t_{i}", run_id)
+                self.log_error(e, f"processing_business_result_{i}", run_id)
                 continue
         
         return processed_businesses

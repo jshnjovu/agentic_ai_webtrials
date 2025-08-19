@@ -1,6 +1,6 @@
 """
 Fallback scoring service for when Lighthouse API fails.
-Provides heuristic-only scoring with automatic fallback detection and retry logic.
+Provides comprehensive speed analysis scoring with automatic fallback detection and retry logic.
 """
 
 import time
@@ -12,7 +12,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from src.core.base_service import BaseService
 from src.core.config import get_api_config
 from src.services.rate_limiter import RateLimiter
-from src.services.heuristic_evaluation_service import HeuristicEvaluationService
+from src.services.comprehensive_speed_service import ComprehensiveSpeedService
 from src.schemas.website_scoring import (
     FallbackScore, FallbackReason, FallbackReasonDetails, FallbackMetrics, FallbackHistory, FallbackQuality, FallbackQualityDetails,
     ConfidenceLevel, FallbackScoringRequest, FallbackScoringResponse, FallbackScoringError
@@ -41,7 +41,7 @@ class FallbackScoringService(BaseService):
         super().__init__("FallbackScoringService")
         self.api_config = get_api_config()
         self.rate_limiter = RateLimiter()
-        self.heuristic_service = HeuristicEvaluationService()
+        self.comprehensive_service = ComprehensiveSpeedService()
         
         # Fallback configuration
         self.max_retry_attempts = 3
@@ -88,10 +88,16 @@ class FallbackScoringService(BaseService):
         if not isinstance(data, dict):
             return False
         
-        required_fields = ['website_url', 'business_id', 'pagespeed_failure_reason']
-        return all(field in data for field in required_fields)
+        # Accept either pagespeed_failure_reason or lighthouse_failure_reason
+        required_fields = ['website_url', 'business_id']
+        if not all(field in data for field in required_fields):
+            return False
+        
+        # Must have at least one failure reason
+        failure_reasons = ['pagespeed_failure_reason', 'lighthouse_failure_reason']
+        return any(reason in data for reason in failure_reasons)
     
-    def run_fallback_scoring(
+    async def run_fallback_scoring(
         self,
         website_url: str,
         business_id: str,
@@ -154,15 +160,15 @@ class FallbackScoringService(BaseService):
                     website_url, business_id, run_id, failure_analysis
                 )
             
-            # Run heuristic evaluation for fallback scoring
-            heuristic_result = self._run_heuristic_evaluation(
+            # Run comprehensive speed analysis for fallback scoring
+            comprehensive_result = await self._run_comprehensive_analysis(
                 website_url, business_id, run_id
             )
             
-            if not heuristic_result["success"]:
+            if not comprehensive_result["success"]:
                 return self._create_error_response(
-                    f"Heuristic evaluation failed: {heuristic_result.get('error', 'Unknown error')}",
-                    "heuristic_evaluation",
+                    f"Comprehensive speed analysis failed: {comprehensive_result.get('error', 'Unknown error')}",
+                    "comprehensive_analysis",
                     website_url,
                     business_id,
                     run_id
@@ -170,7 +176,7 @@ class FallbackScoringService(BaseService):
             
             # Create fallback score with reduced confidence
             fallback_score = self._create_fallback_score(
-                heuristic_result, pagespeed_failure_reason, run_id, business_id, website_url
+                comprehensive_result, pagespeed_failure_reason, run_id, business_id, website_url
             )
             
             # Create fallback reason tracking
@@ -180,7 +186,7 @@ class FallbackScoringService(BaseService):
             
             # Assess fallback quality
             fallback_quality = self._assess_fallback_quality(
-                fallback_score, heuristic_result, failure_analysis
+                fallback_score, comprehensive_result, failure_analysis
             )
             
             # Record successful request
@@ -349,39 +355,39 @@ class FallbackScoringService(BaseService):
             self.log_error(e, "lighthouse_recovery_attempt", run_id, business_id)
             return False
     
-    def _run_heuristic_evaluation(
+    async def _run_comprehensive_analysis(
         self,
         website_url: str,
         business_id: str,
         run_id: Optional[str]
     ) -> Dict[str, Any]:
-        """Run heuristic evaluation for fallback scoring."""
+        """Run comprehensive speed analysis for fallback scoring."""
         try:
             self.log_operation(
-                "Running heuristic evaluation for fallback scoring",
+                "Running comprehensive speed analysis for fallback scoring",
                 run_id=run_id,
                 business_id=business_id,
                 website_url=website_url
             )
             
-            # Use the existing heuristic evaluation service
-            result = self.heuristic_service.run_heuristic_evaluation(
+            # Use the comprehensive speed service
+            result = await self.comprehensive_service.run_comprehensive_analysis(
                 website_url, business_id, run_id
             )
             
             return result
             
         except Exception as e:
-            self.log_error(e, "heuristic_evaluation", run_id, business_id)
+            self.log_error(e, "comprehensive_analysis", run_id, business_id)
             return {
                 "success": False,
                 "error": str(e),
-                "context": "heuristic_evaluation"
+                "context": "comprehensive_analysis"
             }
     
     def _create_fallback_score(
         self,
-        heuristic_result: Dict[str, Any],
+        comprehensive_result: Dict[str, Any],
         fallback_reason: str,
         run_id: Optional[str],
         business_id: str = "unknown",
@@ -389,22 +395,23 @@ class FallbackScoringService(BaseService):
     ) -> FallbackScore:
         """Create fallback score with reduced confidence."""
         try:
-            scores = heuristic_result.get("scores", {})
+            scores = comprehensive_result.get("scores", {})
             
             # Create fallback scores dictionary
             fallback_scores = {
-                "trust_score": scores.get("trust_score", 0.0),
-                "cro_score": scores.get("cro_score", 0.0),
-                "mobile_score": scores.get("mobile_score", 0.0),
-                "content_score": scores.get("content_score", 0.0),
-                "social_score": scores.get("social_score", 0.0),
-                "overall_score": scores.get("overall_heuristic_score", 0.0)
+                "pingdom_trust": scores.get("pingdom_trust", 0.0),
+                "pingdom_cro": scores.get("pingdom_cro", 0.0),
+                "pagespeed_performance": scores.get("pagespeed_performance", 0.0),
+                "pagespeed_accessibility": scores.get("pagespeed_accessibility", 0.0),
+                "pagespeed_best_practices": scores.get("pagespeed_best_practices", 0.0),
+                "pagespeed_seo": scores.get("pagespeed_seo", 0.0),
+                "overall_score": scores.get("overall_score", 0.0)
             }
             
             # Create quality metrics
             quality_metrics = FallbackMetrics(
                 # Quality assessment fields
-                data_completeness=self._calculate_data_completeness(heuristic_result),
+                data_completeness=self._calculate_data_completeness(comprehensive_result),
                 source_reliability=0.7,  # Reduced reliability for fallback
                 confidence_score=0.6,    # Reduced confidence for fallback
                 fallback_reason=FallbackReason.TIMEOUT,  # Default to timeout
@@ -501,13 +508,13 @@ class FallbackScoringService(BaseService):
     def _assess_fallback_quality(
         self,
         fallback_score: FallbackScore,
-        heuristic_result: Dict[str, Any],
+        comprehensive_result: Dict[str, Any],
         failure_analysis: Dict[str, Any]
     ) -> FallbackQualityDetails:
         """Assess the quality of fallback scoring results."""
         try:
             # Calculate reliability score based on data completeness
-            data_completeness = self._calculate_data_completeness(heuristic_result)
+            data_completeness = self._calculate_data_completeness(comprehensive_result)
             
             # Calculate reliability score based on failure severity and data quality
             reliability_score = self._calculate_reliability_score(
@@ -521,7 +528,7 @@ class FallbackScoringService(BaseService):
             
             # Determine quality indicators
             quality_indicators = self._determine_quality_indicators(
-                fallback_score, heuristic_result, failure_analysis
+                fallback_score, comprehensive_result, failure_analysis
             )
             
             # Generate recommendation
@@ -550,71 +557,47 @@ class FallbackScoringService(BaseService):
                 recommendation="Unable to assess quality due to error"
             )
     
-    def _calculate_data_completeness(self, heuristic_result: Dict[str, Any]) -> float:
-        """Calculate completeness of heuristic data."""
+    def _calculate_data_completeness(self, comprehensive_result: Dict[str, Any]) -> float:
+        """Calculate completeness of comprehensive speed analysis data."""
         try:
             # Count available data points
             total_points = 0
             available_points = 0
             
-            # Check trust signals (9 fields)
-            trust_signals = heuristic_result.get("trust_signals", {})
-            trust_fields = [
-                "has_https", "has_privacy_policy", "has_contact_info", "has_about_page",
-                "has_terms_of_service", "has_ssl_certificate", "has_business_address",
-                "has_phone_number", "has_email"
+            # Check PageSpeed data (4 main scores + core web vitals)
+            pagespeed_data = comprehensive_result.get("pagespeed_data", {})
+            pagespeed_fields = [
+                "performance_score", "accessibility_score", "best_practices_score", "seo_score",
+                "first_contentful_paint", "largest_contentful_paint", "cumulative_layout_shift",
+                "total_blocking_time", "speed_index"
             ]
-            for field in trust_fields:
+            for field in pagespeed_fields:
                 total_points += 1
-                if trust_signals.get(field, False):
+                if pagespeed_data.get(field) is not None:
                     available_points += 1
             
-            # Check CRO elements (8 fields)
-            cro_elements = heuristic_result.get("cro_elements", {})
-            cro_fields = [
-                "has_cta_buttons", "has_contact_forms", "has_pricing_tables",
-                "has_testimonials", "has_reviews", "has_social_proof",
-                "has_urgency_elements", "has_trust_badges"
+            # Check Pingdom data (6 fields)
+            pingdom_data = comprehensive_result.get("pingdom_data", {})
+            pingdom_fields = [
+                "trust_score", "cro_score", "ssl_status", "response_time", "uptime", "security_headers"
             ]
-            for field in cro_fields:
+            for field in pingdom_fields:
                 total_points += 1
-                if cro_elements.get(field, False):
+                if pingdom_data.get(field) is not None:
                     available_points += 1
             
-            # Check mobile usability (6 fields)
-            mobile_usability = heuristic_result.get("mobile_usability", {})
-            mobile_fields = [
-                "has_viewport_meta", "has_touch_targets", "has_responsive_design",
-                "has_mobile_navigation", "has_readable_fonts", "has_adequate_spacing"
+            # Check overall scores (7 fields)
+            scores = comprehensive_result.get("scores", {})
+            score_fields = [
+                "pagespeed_performance", "pagespeed_accessibility", "pagespeed_best_practices",
+                "pagespeed_seo", "pingdom_trust", "pingdom_cro", "overall_score"
             ]
-            for field in mobile_fields:
+            for field in score_fields:
                 total_points += 1
-                if mobile_usability.get(field, False):
+                if scores.get(field) is not None:
                     available_points += 1
             
-            # Check content quality (8 fields)
-            content_quality = heuristic_result.get("content_quality", {})
-            content_fields = [
-                "has_proper_headings", "has_alt_text", "has_meta_description",
-                "has_meta_keywords", "has_structured_data", "has_internal_links",
-                "has_external_links", "has_blog_content"
-            ]
-            for field in content_fields:
-                total_points += 1
-                if content_quality.get(field, False):
-                    available_points += 1
-            
-            # Check social proof (7 fields)
-            social_proof = heuristic_result.get("social_proof", {})
-            social_fields = [
-                "has_social_media_links", "has_customer_reviews", "has_testimonials",
-                "has_case_studies", "has_awards_certifications", "has_partner_logos",
-                "has_user_generated_content"
-            ]
-            for field in social_fields:
-                total_points += 1
-                if social_proof.get(field, False):
-                    available_points += 1
+
             
             # Calculate completeness percentage
             if total_points > 0:
@@ -686,7 +669,7 @@ class FallbackScoringService(BaseService):
     def _determine_quality_indicators(
         self,
         fallback_score: FallbackScore,
-        heuristic_result: Dict[str, Any],
+        comprehensive_result: Dict[str, Any],
         failure_analysis: Dict[str, Any]
     ) -> Dict[str, bool]:
         """Determine quality indicators for fallback results."""
@@ -698,16 +681,17 @@ class FallbackScoringService(BaseService):
             indicators["scores_reasonable"] = (
                 0 <= fallback_scores.get("overall_score", 0) <= 100 and
                 all(0 <= score <= 100 for score in [
-                    fallback_scores.get("trust_score", 0),
-                    fallback_scores.get("cro_score", 0),
-                    fallback_scores.get("mobile_score", 0),
-                    fallback_scores.get("content_score", 0),
-                    fallback_scores.get("social_score", 0)
+                    fallback_scores.get("pingdom_trust", 0),
+                    fallback_scores.get("pingdom_cro", 0),
+                    fallback_scores.get("pagespeed_performance", 0),
+                    fallback_scores.get("pagespeed_accessibility", 0),
+                    fallback_scores.get("pagespeed_best_practices", 0),
+                    fallback_scores.get("pagespeed_seo", 0)
                 ])
             )
             
             # Check if data is available
-            indicators["data_available"] = bool(heuristic_result.get("scores"))
+            indicators["data_available"] = bool(comprehensive_result.get("scores"))
             
             # Check if failure analysis is complete
             indicators["failure_analysis_complete"] = all(

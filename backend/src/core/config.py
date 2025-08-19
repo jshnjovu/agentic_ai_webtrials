@@ -66,6 +66,9 @@ class APIConfig(BaseSettings):
     # Google PageSpeed API Configuration
     GOOGLE_GENERAL_API_KEY: Optional[str] = None
     
+    # Pingdom API Configuration
+    PINGDOM_API_KEY: Optional[str] = None
+    
     # Geoapify Configuration
     GEOAPIFY_API_KEY: Optional[str] = None
     
@@ -75,7 +78,8 @@ class APIConfig(BaseSettings):
     YELP_FUSION_RATE_LIMIT_PER_DAY: int = 5000
     PAGESPEED_RATE_LIMIT_PER_DAY: int = 25000
     PAGESPEED_RATE_LIMIT_PER_MINUTE: int = 240
-    HEURISTICS_RATE_LIMIT_PER_MINUTE: int = 60
+    PINGDOM_RATE_LIMIT_PER_MINUTE: int = 60
+    COMPREHENSIVE_SPEED_RATE_LIMIT_PER_MINUTE: int = 30
     VALIDATION_RATE_LIMIT_PER_MINUTE: int = 120
     FALLBACK_RATE_LIMIT_PER_MINUTE: int = 60
     
@@ -83,9 +87,9 @@ class APIConfig(BaseSettings):
     API_TIMEOUT_SECONDS: int = 30
     PAGESPEED_AUDIT_TIMEOUT_SECONDS: int = 30
     PAGESPEED_CONNECT_TIMEOUT_SECONDS: int = 10
-    PAGESPEED_READ_TIMEOUT_SECONDS: int = 25
+    PAGESPEED_READ_TIMEOUT_SECONDS: int = 45
     PAGESPEED_FALLBACK_TIMEOUT_SECONDS: int = 15
-    HEURISTICS_EVALUATION_TIMEOUT_SECONDS: int = 15
+    COMPREHENSIVE_ANALYSIS_TIMEOUT_SECONDS: int = 60
     
     # Circuit Breaker Configuration
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
@@ -226,6 +230,9 @@ class APIConfig(BaseSettings):
             
         if self.is_api_key_valid('GOOGLE_GENERAL_API_KEY'):
             available.append('google_pagespeed')
+            
+        if self.is_api_key_valid('PINGDOM_API_KEY'):
+            available.append('pingdom')
             
         return available
 

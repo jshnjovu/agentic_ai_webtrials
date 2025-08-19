@@ -185,8 +185,8 @@ class TestFallbackScoringAPI:
         """Test fallback scoring endpoint with general error."""
         general_error_result = {
             "success": False,
-            "error": "Heuristic evaluation failed",
-            "context": "heuristic_evaluation"
+            "error": "Comprehensive speed analysis failed",
+            "context": "comprehensive_analysis"
         }
         
         with patch('src.api.v1.website_scoring.get_fallback_scoring_service') as mock_get_service:
@@ -199,7 +199,7 @@ class TestFallbackScoringAPI:
             
             assert response.status_code == 400
             response_data = response.json()
-            assert "Heuristic evaluation failed" in response_data["detail"]["error"]
+            assert "Comprehensive speed analysis failed" in response_data["detail"]["error"]
     
     def test_fallback_scoring_endpoint_missing_run_id(self, client, successful_fallback_result):
         """Test fallback scoring endpoint with missing run_id (should generate one)."""
@@ -231,7 +231,7 @@ class TestFallbackScoringAPI:
         
         response = client.post("/website-scoring/fallback", json=invalid_request)
         
-        assert response.status_code == 400  # Service error (invalid URL causes heuristic evaluation to fail)
+        assert response.status_code == 400  # Service error (invalid URL causes comprehensive analysis to fail)
     
     def test_fallback_scoring_endpoint_missing_required_fields(self, client):
         """Test fallback scoring endpoint with missing required fields."""

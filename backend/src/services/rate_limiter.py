@@ -62,8 +62,14 @@ class RateLimiter(BaseService):
             "requests": [],
             "last_reset": time.time(),
         }
-        self._rate_limits["heuristics"] = {
-            "limit": self.api_config.HEURISTICS_RATE_LIMIT_PER_MINUTE,
+        self._rate_limits["pingdom"] = {
+            "limit": self.api_config.PINGDOM_RATE_LIMIT_PER_MINUTE,
+            "window": 60,  # seconds
+            "requests": [],
+            "last_reset": time.time(),
+        }
+        self._rate_limits["comprehensive_speed"] = {
+            "limit": self.api_config.COMPREHENSIVE_SPEED_RATE_LIMIT_PER_MINUTE,
             "window": 60,  # seconds
             "requests": [],
             "last_reset": time.time(),

@@ -70,15 +70,16 @@ def test_fallback_scoring_service():
     
     # Test 4: Data completeness calculation
     print("\n4. Testing data completeness calculation...")
-    mock_heuristic_result = {
-        "trust_signals": {"has_https": True, "has_privacy_policy": True, "has_contact_info": True},
-        "cro_elements": {"has_cta_buttons": True, "has_contact_forms": False, "has_pricing_tables": False},
-        "mobile_usability": {"has_viewport_meta": True, "has_touch_targets": False, "has_responsive_design": True},
-        "content_quality": {"has_proper_headings": True, "has_alt_text": False, "has_meta_description": True},
-        "social_proof": {"has_social_media_links": False, "has_customer_reviews": True, "has_testimonials": False}
+    mock_comprehensive_result = {
+        "pagespeed_performance": 85,
+        "pagespeed_accessibility": 78,
+        "pagespeed_best_practices": 82,
+        "pagespeed_seo": 75,
+        "pingdom_trust": 88,
+        "pingdom_cro": 72
     }
     
-    completeness = service._calculate_data_completeness(mock_heuristic_result)
+    completeness = service._calculate_data_completeness(mock_comprehensive_result)
     print(f"✅ Data completeness: {completeness:.1f}%")
     
     # Test 5: Reliability score calculation
@@ -112,7 +113,7 @@ def test_fallback_scoring_service():
     }
     
     indicators = service._determine_quality_indicators(
-        fallback_score, mock_heuristic_result, failure_analysis
+        fallback_score, mock_comprehensive_result, failure_analysis
     )
     
     for indicator, value in indicators.items():
@@ -138,10 +139,10 @@ def test_fallback_scoring_integration():
     print("\nRunning fallback scoring for a timeout scenario...")
     
     try:
-        # This would normally require a real website and heuristic service
-        # For testing, we'll mock the heuristic service call
+        # This would normally require a real website and comprehensive speed service
+        # For testing, we'll mock the comprehensive speed service call
         with open('/dev/null', 'w') as f:
-            # Redirect stdout to suppress heuristic service logs
+            # Redirect stdout to suppress comprehensive speed service logs
             import sys
             original_stdout = sys.stdout
             sys.stdout = f

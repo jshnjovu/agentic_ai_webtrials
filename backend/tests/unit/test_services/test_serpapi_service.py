@@ -63,32 +63,38 @@ class TestSerpAPIService:
         assert serpapi_service.validate_input(None) is False
 
     @patch('src.services.serpapi_service.RateLimiter')
-    def test_search_businesses_success(self, mock_rate_limiter_class, serpapi_service, sample_search_request, sample_serpapi_response):
+    @pytest.mark.asyncio
+    async def test_search_businesses_success(self, mock_rate_limiter_class, serpapi_service, sample_search_request, sample_serpapi_response):
         """Test successful business search."""
         # Mock rate limiter
         mock_rate_limiter = Mock()
         mock_rate_limiter.can_make_request.return_value = (True, "OK")
         mock_rate_limiter_class.return_value = mock_rate_limiter
         
-        # Mock HTTP request
-        with patch('httpx.Client') as mock_client_class:
-            mock_client = Mock()
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = sample_serpapi_response
-            mock_client.get.return_value = mock_response
-            mock_client_class.return_value.__enter__.return_value = mock_client
+        # Mock GeoapifyService
+        with patch.object(serpapi_service.geoapify_service, 'extract_country_code') as mock_geoapify:
+            mock_geoapify.return_value = "us"
             
-            result = serpapi_service.search_businesses(sample_search_request)
-            
-            assert isinstance(result, BusinessSearchResponse)
-            assert result.success is True
-            assert result.query == "gyms"
-            assert result.total_results == 1
-            assert result.search_metadata["api_used"] == "serpapi"
+            # Mock HTTP request
+            with patch('httpx.Client') as mock_client_class:
+                mock_client = Mock()
+                mock_response = Mock()
+                mock_response.status_code = 200
+                mock_response.json.return_value = sample_serpapi_response
+                mock_client.get.return_value = mock_response
+                mock_client_class.return_value.__enter__.return_value = mock_client
+                
+                result = await serpapi_service.search_businesses(sample_search_request)
+                
+                assert isinstance(result, BusinessSearchResponse)
+                assert result.success is True
+                assert result.query == "gyms"
+                assert result.total_results == 1
+                assert result.search_metadata["api_used"] == "serpapi"
 
     @patch('src.services.serpapi_service.RateLimiter')
-    def test_search_businesses_rate_limit_exceeded(self, mock_rate_limiter_class, serpapi_service, sample_search_request):
+    @pytest.mark.asyncio
+    async def test_search_businesses_rate_limit_exceeded(self, mock_rate_limiter_class, serpapi_service, sample_search_request):
         """Test business search when rate limit is exceeded."""
         # Create a new service instance with the mocked rate limiter
         with patch('src.services.serpapi_service.RateLimiter') as mock_rate_limiter_class:
@@ -100,23 +106,28 @@ class TestSerpAPIService:
             service = SerpAPIService()
             service.rate_limiter = mock_rate_limiter
             
-            result = service.search_businesses(sample_search_request)
+            result = await service.search_businesses(sample_search_request)
             
             assert isinstance(result, BusinessSearchError)
             assert result.success is False
             assert "Rate limit exceeded" in result.error
             assert result.context == "rate_limit_check"
 
-    def test_build_search_params(self, serpapi_service, sample_search_request):
+    @pytest.mark.asyncio
+    async def test_build_search_params(self, serpapi_service, sample_search_request):
         """Test building search parameters - exactly matching SERPAPI.md pattern."""
-        params = serpapi_service._build_search_params(sample_search_request)
-        
-        # Query should be combined like SERPAPI.md: "Gym London UK" format
-        assert params["q"] == "gyms London"
-        assert params["engine"] == "google_local"
-        assert params["google_domain"] == "google.com"
-        assert "num" not in params  # No num parameter in SERPAPI.md
-        assert "location" not in params  # No separate location parameter
+        # Mock GeoapifyService
+        with patch.object(serpapi_service.geoapify_service, 'extract_country_code') as mock_geoapify:
+            mock_geoapify.return_value = "us"
+            
+            params = await serpapi_service._build_search_params(sample_search_request)
+            
+            # Query should be combined like SERPAPI.md: "Gym London UK" format
+            assert params["q"] == "gyms London"
+            assert params["engine"] == "google_local"
+            assert params["google_domain"] == "google.com"
+            assert "num" not in params  # No num parameter in SERPAPI.md
+            assert "location" not in params  # No separate location parameter
 
     def test_execute_search_success(self, serpapi_service, sample_serpapi_response):
         """Test successful search execution."""

@@ -20,21 +20,21 @@ export default async function handler(
       });
     }
 
-    // Transform frontend request to backend business search format
+    // Transform frontend request to Yelp Fusion business search format
     const backendRequest = {
-      query: niche,
+      term: niche,
       location: location,
       location_type: 'city', // Default to city search
-      category: niche,
-      max_results: max_businesses || 10,
+      categories: [niche], // Yelp uses categories array
+      limit: max_businesses || 10,
       radius: 5000 // Default 5km radius
     };
 
     console.log('🔍 Frontend discover request:', req.body);
-    console.log('🔍 Backend business search request:', backendRequest);
+    console.log('🔍 Backend Yelp Fusion request:', backendRequest);
 
-    // Call backend business search API
-    const response = await fetch(`${BACKEND_URL}/api/v1/business-search/serpapi/search`, {
+    // Call backend Yelp Fusion business search API
+    const response = await fetch(`${BACKEND_URL}/api/v1/business-search/yelp-fusion/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -44,33 +44,60 @@ export default async function handler(
 
     if (!response.ok) {
       const errorData = await response.text();
-      console.error('Backend business search error:', response.status, errorData);
+      console.error('Backend Yelp Fusion search error:', response.status, errorData);
       return res.status(response.status).json({ 
-        error: 'Failed to discover businesses',
+        error: 'Failed to discover businesses via Yelp Fusion',
         details: errorData
       });
     }
 
     const backendData = await response.json();
-    console.log('✅ Backend business search response:', backendData);
+    console.log('✅ Backend Yelp Fusion response:', backendData);
 
-    // Transform backend response to frontend expected format
+    // Transform Yelp Fusion response to frontend expected format
     const frontendResponse = {
-      businesses: backendData.results.map((business: any) => ({
-        business_name: business.name,
-        niche: niche,
-        location: location,
-        place_id: business.place_id,
-        rating: business.rating,
-        user_ratings_total: business.user_ratings_total,
-        address: business.address || business.formatted_address,
-        phone: business.phone,
-        website: business.website,
-        categories: business.types || business.categories || [],
-        confidence_level: business.confidence_level || 'medium'
-      })),
-      total_results: backendData.total_results,
-      query: backendData.query,
+      businesses: backendData.businesses.map((business: any) => {
+        // Contact name logic: use "about_this_biz_bio_first_name" + "about_this_biz_bio_last_name" if available, otherwise use "alias"
+        let contactName = business.alias;
+        if (business.attributes && business.attributes.about_this_biz_bio_first_name && business.attributes.about_this_biz_bio_last_name) {
+          contactName = `${business.attributes.about_this_biz_bio_first_name} ${business.attributes.about_this_biz_bio_last_name}`;
+        } else if (business.attributes && business.attributes.about_this_biz_bio_first_name) {
+          contactName = business.attributes.about_this_biz_bio_first_name;
+        }
+
+        // Extract postcode from location object
+        const postcode = business.location?.zip_code || '';
+
+        // Build full address
+        const addressParts = [
+          business.location?.address1,
+          business.location?.address2,
+          business.location?.city,
+          business.location?.state,
+          business.location?.zip_code,
+          business.location?.country
+        ].filter(Boolean);
+        const fullAddress = addressParts.join(', ');
+
+        return {
+          business_name: business.name,
+          contact_name: contactName,
+          niche: niche,
+          location: location,
+          place_id: business.id, // Yelp uses 'id' instead of 'place_id'
+          rating: business.rating,
+          user_ratings_total: business.review_count, // Yelp uses 'review_count'
+          address: fullAddress,
+          postcode: postcode, // Extract postcode separately
+          phone: business.phone,
+          website: business.attributes?.business_url || business.url, // Yelp business URL or Yelp page URL
+          categories: business.categories?.map((cat: any) => cat.title) || [],
+          confidence_level: 'high', // Yelp data is generally high quality
+          source: 'yelp_fusion'
+        };
+      }),
+      total_results: backendData.total,
+      query: backendData.term, // Yelp uses 'term' instead of 'query'
       location: backendData.location
     };
 

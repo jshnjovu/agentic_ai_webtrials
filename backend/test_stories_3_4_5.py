@@ -142,14 +142,14 @@ class MockEnhancedLeadGenToolExecutor:
                         ]
                     })
                     
-                    # Add Epic 2 heuristic data
+                    # Add Epic 2 comprehensive speed data
                     scored_business.update({
-                        "heuristic_trust": 28 + (i * 3),
-                        "heuristic_cro": 25 + (i * 4),
-                        "heuristic_mobile": 30 + (i * 2),
-                        "heuristic_content": 32 + (i * 3),
-                        "heuristic_social": 27 + (i * 4),
-                        "heuristic_overall": 28 + (i * 3)
+                        "pagespeed_performance": 28 + (i * 3),
+                        "pagespeed_accessibility": 25 + (i * 4),
+                        "pagespeed_best_practices": 30 + (i * 2),
+                        "pagespeed_seo": 32 + (i * 3),
+                        "pingdom_trust": 27 + (i * 4),
+                        "pingdom_cro": 28 + (i * 3)
                     })
                     
                 elif i < 7:  # Next 4 businesses: fair scores (may need demos)
@@ -170,14 +170,14 @@ class MockEnhancedLeadGenToolExecutor:
                         ]
                     })
                     
-                    # Add Epic 2 heuristic data
+                    # Add Epic 2 comprehensive speed data
                     scored_business.update({
-                        "heuristic_trust": 58 + (i * 2),
-                        "heuristic_cro": 55 + (i * 3),
-                        "heuristic_mobile": 60 + (i * 2),
-                        "heuristic_content": 62 + (i * 2),
-                        "heuristic_social": 57 + (i * 3),
-                        "heuristic_overall": 58 + (i * 2)
+                        "pagespeed_performance": 58 + (i * 2),
+                        "pagespeed_accessibility": 55 + (i * 3),
+                        "pagespeed_best_practices": 60 + (i * 2),
+                        "pagespeed_seo": 62 + (i * 2),
+                        "pingdom_trust": 57 + (i * 3),
+                        "pingdom_cro": 58 + (i * 2)
                     })
                     
                 else:  # Last 3 businesses: good scores (no demos needed)
@@ -195,14 +195,14 @@ class MockEnhancedLeadGenToolExecutor:
                         "top_issues": []
                     })
                     
-                    # Add Epic 2 heuristic data
+                    # Add Epic 2 comprehensive speed data
                     scored_business.update({
-                        "heuristic_trust": 78 + (i * 2),
-                        "heuristic_cro": 75 + (i * 3),
-                        "heuristic_mobile": 80 + (i * 2),
-                        "heuristic_content": 82 + (i * 2),
-                        "heuristic_social": 77 + (i * 3),
-                        "heuristic_overall": 78 + (i * 2)
+                        "pagespeed_performance": 78 + (i * 2),
+                        "pagespeed_accessibility": 75 + (i * 3),
+                        "pagespeed_best_practices": 80 + (i * 2),
+                        "pagespeed_seo": 82 + (i * 2),
+                        "pingdom_trust": 77 + (i * 3),
+                        "pingdom_cro": 78 + (i * 2)
                     })
             else:
                 # No website - mark as unscorable

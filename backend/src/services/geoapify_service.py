@@ -26,7 +26,7 @@ class GeoapifyService(BaseService):
         """Validate input data for the service."""
         return isinstance(data, str) and len(data.strip()) > 0
     
-    def extract_country_code(self, location: str) -> Optional[str]:
+    async def extract_country_code(self, location: str) -> Optional[str]:
         """
         Extract country code from a location string.
         
@@ -42,14 +42,16 @@ class GeoapifyService(BaseService):
         
         try:
             # Build search parameters - exactly matching GEOAPIFY.md pattern
+            # Limit to 1 result for better performance since we only need country code
             params = {
                 "text": location,
-                "apiKey": self.api_key
+                "apiKey": self.api_key,
+                "limit": 1  # Only get 1 result for country code extraction
             }
             
-            # Make API request
-            with httpx.Client(timeout=10.0) as client:
-                response = client.get(self.base_url, params=params)
+            # Make async API request
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(self.base_url, params=params)
                 response.raise_for_status()
                 
                 data = response.json()

@@ -60,15 +60,16 @@ def sample_validation_request():
                 "overall": 88.75
             }
         ],
-        "heuristic_scores": [
+        "comprehensive_scores": [
             {
                 "website_url": "https://example.com",
-                "trust_score": 88.0,
-                "cro_score": 89.0,
-                "mobile_score": 90.0,
-                "content_score": 87.0,
-                "social_score": 89.0,
-                "overall_heuristic_score": 88.6,
+                "pagespeed_performance": 88.0,
+                "pagespeed_accessibility": 89.0,
+                "pagespeed_best_practices": 90.0,
+                "pagespeed_seo": 87.0,
+                "pingdom_trust": 89.0,
+                "pingdom_cro": 88.6,
+                "overall_score": 88.6,
                 "confidence_level": "high"
             }
         ]
@@ -285,7 +286,7 @@ class TestScoreValidationAPI:
             "business_id": "test_business_123",
             "run_id": "test_run_456",
             "lighthouse_scores": [],
-            "heuristic_scores": []
+            "comprehensive_scores": []
         }
         
         response = client.post(
@@ -331,7 +332,7 @@ class TestScoreValidationAPI:
             "business_id": "",  # Empty business_id
             "run_id": "test_run_456",
             "lighthouse_scores": [],
-            "heuristic_scores": []
+            "comprehensive_scores": []
         }
     
         response = client.post(

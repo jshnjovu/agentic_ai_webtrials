@@ -63,8 +63,8 @@ async def search_businesses(
                 detail="Invalid business search request"
             )
         
-        # Execute SerpAPI search directly
-        result = service.search_businesses(request)
+        # Execute SerpAPI search directly (async)
+        result = await service.search_businesses(request)
         
         # Handle error responses
         if isinstance(result, BusinessSearchError):
@@ -202,8 +202,8 @@ async def search_businesses_get(
                 detail="Invalid business search request"
             )
         
-        # Execute SerpAPI search directly
-        result = service.search_businesses(request)
+        # Execute SerpAPI search directly (async)
+        result = await service.search_businesses(request)
         
         # Handle error responses
         if isinstance(result, BusinessSearchError):

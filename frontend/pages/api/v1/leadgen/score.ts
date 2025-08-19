@@ -92,13 +92,23 @@ export default async function handler(
           confidence: scoreData.confidence
         };
 
-        scoredBusinesses.push({
+        // Map scores to the fields expected by frontend components
+        const scoredBusiness = {
           ...business,
           website_score: websiteScore,
+          // Direct score fields for frontend components
+          score_overall: scoreData.overallScore || 0,
+          score_perf: scoreData.scores.performance || 0,
+          score_access: scoreData.scores.accessibility || 0,
+          score_seo: scoreData.scores.seo || 0,
+          score_trust: scoreData.scores.trust || 0, // Will be 0 if not available
+          score_cro: scoreData.scores.cro || 0,     // Will be 0 if not available
           scoring_status: 'completed',
           scoring_error: null,
           last_scored: new Date().toISOString()
-        });
+        };
+
+        scoredBusinesses.push(scoredBusiness);
 
       } catch (businessError) {
         console.error(`❌ Error scoring business ${business.business_name}:`, businessError);

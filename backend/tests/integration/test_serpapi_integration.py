@@ -48,9 +48,10 @@ class TestSerpAPIIntegration:
         assert serpapi_service.validate_input("invalid") is False
         assert serpapi_service.validate_input(None) is False
     
-    def test_real_api_search(self, serpapi_service, sample_search_request):
+    @pytest.mark.asyncio
+    async def test_real_api_search(self, serpapi_service, sample_search_request):
         """Test real SERPAPI search with actual API call."""
-        result = serpapi_service.search_businesses(sample_search_request)
+        result = await serpapi_service.search_businesses(sample_search_request)
         
         # Verify response structure
         assert hasattr(result, 'success')
@@ -93,7 +94,8 @@ class TestSerpAPIIntegration:
             assert hasattr(result, 'context')
             assert result.error is not None
     
-    def test_search_with_category_filter(self, serpapi_service):
+    @pytest.mark.asyncio
+    async def test_search_with_category_filter(self, serpapi_service):
         """Test SERPAPI search with category filtering."""
         request = BusinessSearchRequest(
             query="gyms",
@@ -104,7 +106,7 @@ class TestSerpAPIIntegration:
             run_id="pytest_category_test"
         )
         
-        result = serpapi_service.search_businesses(request)
+        result = await serpapi_service.search_businesses(request)
         
         if result.success and result.results:
             # Verify that results contain fitness-related businesses
@@ -121,7 +123,8 @@ class TestSerpAPIIntegration:
                     # Note: This is a soft assertion as SERPAPI may return broader results
                     # even with category filtering
     
-    def test_search_with_radius_limit(self, serpapi_service):
+    @pytest.mark.asyncio
+    async def test_search_with_radius_limit(self, serpapi_service):
         """Test SERPAPI search with radius limiting."""
         request = BusinessSearchRequest(
             query="coffee shops",
@@ -132,7 +135,7 @@ class TestSerpAPIIntegration:
             run_id="pytest_radius_test"
         )
         
-        result = serpapi_service.search_businesses(request)
+        result = await serpapi_service.search_businesses(request)
         
         if result.success:
             assert result.query == "coffee shops"
@@ -140,7 +143,8 @@ class TestSerpAPIIntegration:
             # Note: SERPAPI doesn't guarantee radius enforcement, so we just verify
             # the request was processed correctly
     
-    def test_search_max_results_limit(self, serpapi_service):
+    @pytest.mark.asyncio
+    async def test_search_max_results_limit(self, serpapi_service):
         """Test that SERPAPI respects max_results parameter."""
         request = BusinessSearchRequest(
             query="pizza",
@@ -150,7 +154,7 @@ class TestSerpAPIIntegration:
             run_id="pytest_max_results_test"
         )
         
-        result = serpapi_service.search_businesses(request)
+        result = await serpapi_service.search_businesses(request)
         
         if result.success:
             assert result.total_results <= 3
