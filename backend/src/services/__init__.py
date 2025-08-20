@@ -10,7 +10,7 @@ from .google_places_auth_service import GooglePlacesAuthService
 from .yelp_fusion_auth_service import YelpFusionAuthService
 from .google_places_service import GooglePlacesService
 from .yelp_fusion_service import YelpFusionService
-from .google_pagespeed_service import GooglePageSpeedService
+from .unified import UnifiedAnalyzer
 from .category_mapper_service import CategoryMapperService
 from .business_matching_service import BusinessMatchingService
 from .business_merging_service import BusinessMergingService
@@ -28,7 +28,7 @@ __all__ = [
     'YelpFusionAuthService', 
     'GooglePlacesService',
     'YelpFusionService',
-    'GooglePageSpeedService',
+    'UnifiedAnalyzer',
     'CategoryMapperService',
     'BusinessMatchingService',
     'BusinessMergingService',

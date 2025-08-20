@@ -1,6 +1,6 @@
 """
 Comprehensive Speed Service for website performance analysis.
-Orchestrates PageSpeed Insights and Pingdom analysis for complete website health assessment.
+Orchestrates unified analysis for complete website health assessment.
 Based on best practices from temp_place_z implementation.
 """
 
@@ -12,8 +12,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from src.core.base_service import BaseService
 from src.core.config import get_api_config
 from src.services.rate_limiter import RateLimiter
-from src.services.google_pagespeed_service import GooglePageSpeedService
-from src.services.pingdom_service import PingdomService
+from src.services.unified import UnifiedAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +25,15 @@ class ComprehensiveSpeedService(BaseService):
         self.api_config = get_api_config()
         self.rate_limiter = RateLimiter()
         
-        # Initialize sub-services
-        self.pagespeed_service = GooglePageSpeedService()
-        self.pingdom_service = PingdomService()
+        # Initialize unified analyzer service
+        self.unified_analyzer = UnifiedAnalyzer()
         
         # Analysis configuration
         self.analysis_timeout = self.api_config.COMPREHENSIVE_ANALYSIS_TIMEOUT_SECONDS
         
         # Service health tracking
         self.service_health = {
-            "pagespeed": "unknown",
-            "pingdom": "unknown",
+            "unified": "unknown",
             "overall": "unknown"
         }
     
@@ -53,18 +50,16 @@ class ComprehensiveSpeedService(BaseService):
         website_url: str,
         business_id: str,
         run_id: Optional[str] = None,
-        strategy: str = "mobile",
-        include_pingdom: bool = True
+        strategy: str = "mobile"
     ) -> Dict[str, Any]:
         """
-        Run comprehensive website analysis combining PageSpeed and Pingdom data.
+        Run comprehensive website analysis using unified analyzer.
         
         Args:
             website_url: URL of the website to analyze
             business_id: Business identifier for tracking
             run_id: Run identifier for tracking
             strategy: Analysis strategy ('mobile' or 'desktop')
-            include_pingdom: Whether to include Pingdom analysis
             
         Returns:
             Dictionary containing comprehensive analysis results
@@ -109,93 +104,65 @@ class ComprehensiveSpeedService(BaseService):
                 "services_used": []
             }
             
-            # 1. PageSpeed Analysis (Performance, Accessibility, Best Practices, SEO)
-            logger.info(f"Running PageSpeed analysis for {website_url}")
+            # 1. Unified Analysis (Performance, Accessibility, Best Practices, SEO, Trust, CRO)
+            logger.info(f"Running unified analysis for {website_url}")
             try:
-                pagespeed_result = await self.pagespeed_service.run_pagespeed_audit_with_smart_retry(
-                    website_url, business_id, run_id, strategy
+                unified_result = await self.unified_analyzer.run_comprehensive_analysis(
+                    website_url, strategy
                 )
                 
-                if pagespeed_result.get("success", False):
-                    analysis_result["details"]["pagespeed"] = pagespeed_result
-                    analysis_result["services_used"].append("pagespeed")
+                if unified_result.get("success", False):
+                    analysis_result["details"]["unified"] = unified_result
+                    analysis_result["services_used"].append("unified")
                     
-                    # Extract PageSpeed scores
-                    pagespeed_scores = pagespeed_result.get("scores", {})
+                    # Extract all scores from unified analysis
+                    unified_scores = unified_result.get("scores", {})
                     analysis_result["scores"].update({
-                        "performance": pagespeed_scores.get("performance", 0.0),
-                        "accessibility": pagespeed_scores.get("accessibility", 0.0),
-                        "best_practices": pagespeed_scores.get("best_practices", 0.0),
-                        "seo": pagespeed_scores.get("seo", 0.0)
+                        "performance": unified_scores.get("performance", 0.0),
+                        "accessibility": unified_scores.get("accessibility", 0.0),
+                        "bestPractices": unified_scores.get("bestPractices", 0.0),
+                        "seo": unified_scores.get("seo", 0.0),
+                        "trust": unified_scores.get("trust", 0.0),
+                        "cro": unified_scores.get("cro", 0.0)
                     })
                     
-                    # Add Core Web Vitals
-                    if "core_web_vitals" in pagespeed_result:
-                        analysis_result["details"]["core_web_vitals"] = pagespeed_result["core_web_vitals"]
+                    # Add Core Web Vitals and other details
+                    if "details" in unified_result:
+                        if "pagespeed" in unified_result["details"]:
+                            analysis_result["details"]["pagespeed"] = unified_result["details"]["pagespeed"]
+                        if "trust" in unified_result["details"]:
+                            analysis_result["details"]["trust"] = unified_result["details"]["trust"]
+                        if "cro" in unified_result["details"]:
+                            analysis_result["details"]["cro"] = unified_result["details"]["cro"]
+                        if "uptime" in unified_result["details"]:
+                            analysis_result["details"]["uptime"] = unified_result["details"]["uptime"]
                     
-                    logger.info(f"PageSpeed analysis completed successfully for {website_url}")
+                    logger.info(f"Unified analysis completed successfully for {website_url}")
                 else:
-                    logger.warning(f"PageSpeed analysis failed for {website_url}: {pagespeed_result.get('error')}")
+                    logger.warning(f"Unified analysis failed for {website_url}: {unified_result.get('error')}")
                     # Set default scores for failed analysis
                     analysis_result["scores"].update({
                         "performance": 0.0,
                         "accessibility": 0.0,
-                        "best_practices": 0.0,
-                        "seo": 0.0
+                        "bestPractices": 0.0,
+                        "seo": 0.0,
+                        "trust": 0.0,
+                        "cro": 0.0
                     })
                     
             except Exception as e:
-                logger.error(f"PageSpeed analysis error for {website_url}: {e}")
+                logger.error(f"Unified analysis error for {website_url}: {e}")
                 analysis_result["scores"].update({
                     "performance": 0.0,
                     "accessibility": 0.0,
-                    "best_practices": 0.0,
-                    "seo": 0.0
+                    "bestPractices": 0.0,
+                    "seo": 0.0,
+                    "trust": 0.0,
+                    "cro": 0.0
                 })
             
-            # 2. Pingdom Analysis (Trust & CRO)
-            if include_pingdom:
-                logger.info(f"Running Pingdom analysis for {website_url}")
-                try:
-                    # Trust analysis
-                    trust_result = await self.pingdom_service.analyze_trust_metrics(
-                        website_url, business_id, run_id
-                    )
-                    
-                    if trust_result.get("success", False):
-                        analysis_result["details"]["trust"] = trust_result
-                        analysis_result["scores"]["trust"] = trust_result.get("trust_score", 0.0)
-                        analysis_result["services_used"].append("pingdom_trust")
-                        logger.info(f"Trust analysis completed for {website_url}")
-                    else:
-                        logger.warning(f"Trust analysis failed for {website_url}: {trust_result.get('error')}")
-                        analysis_result["scores"]["trust"] = 0.0
-                    
-                    # CRO analysis
-                    cro_result = await self.pingdom_service.analyze_cro_metrics(
-                        website_url, business_id, run_id
-                    )
-                    
-                    if cro_result.get("success", False):
-                        analysis_result["details"]["cro"] = cro_result
-                        analysis_result["scores"]["cro"] = cro_result.get("cro_score", 0.0)
-                        analysis_result["services_used"].append("pingdom_cro")
-                        logger.info(f"CRO analysis completed for {website_url}")
-                    else:
-                        logger.warning(f"CRO analysis failed for {website_url}: {cro_result.get('error')}")
-                        analysis_result["scores"]["cro"] = 0.0
-                        
-                except Exception as e:
-                    logger.error(f"Pingdom analysis error for {website_url}: {e}")
-                    analysis_result["scores"]["trust"] = 0.0
-                    analysis_result["scores"]["cro"] = 0.0
-            else:
-                # Set default scores if Pingdom is not included
-                analysis_result["scores"]["trust"] = 0.0
-                analysis_result["scores"]["cro"] = 0.0
-            
-            # 3. Calculate overall score
-            overall_score = self._calculate_overall_score(analysis_result["scores"])
+            # 3. Calculate overall score using unified analyzer
+            overall_score = self.unified_analyzer._calculate_overall_score(analysis_result["scores"])
             analysis_result["scores"]["overall"] = overall_score
             
             # 4. Add analysis metadata
@@ -243,7 +210,7 @@ class ComprehensiveSpeedService(BaseService):
         strategy: str = "mobile"
     ) -> Dict[str, Any]:
         """
-        Run hybrid audit using PageSpeed's hybrid method.
+        Run hybrid audit using unified analyzer's comprehensive method.
         
         Args:
             website_url: URL of the website to analyze
@@ -257,13 +224,13 @@ class ComprehensiveSpeedService(BaseService):
         try:
             logger.info(f"Running hybrid audit for {website_url}")
             
-            result = await self.pagespeed_service.run_hybrid_audit(
-                website_url, business_id, run_id, strategy, self.pingdom_service
+            result = await self.unified_analyzer.run_comprehensive_analysis(
+                website_url, strategy
             )
             
             # Add service metadata
-            result["services_used"] = ["pagespeed_hybrid", "pingdom"]
-            result["scoring_method"] = "hybrid_pagespeed_pingdom"
+            result["services_used"] = ["unified_analyzer"]
+            result["scoring_method"] = "unified_comprehensive"
             
             return result
             
@@ -283,7 +250,7 @@ class ComprehensiveSpeedService(BaseService):
         self,
         analysis_requests: List[Dict[str, Any]],
         max_concurrent: int = 3,
-        include_pingdom: bool = True
+
     ) -> List[Dict[str, Any]]:
         """
         Run comprehensive analysis on multiple websites concurrently.
@@ -291,7 +258,7 @@ class ComprehensiveSpeedService(BaseService):
         Args:
             analysis_requests: List of analysis request dictionaries
             max_concurrent: Maximum concurrent analyses
-            include_pingdom: Whether to include Pingdom analysis
+
             
         Returns:
             List of analysis results
@@ -308,7 +275,7 @@ class ComprehensiveSpeedService(BaseService):
                     business_id=request['business_id'],
                     run_id=request.get('run_id'),
                     strategy=request.get('strategy', 'mobile'),
-                    include_pingdom=include_pingdom
+
                 )
         
         # Run all analyses concurrently
@@ -333,59 +300,19 @@ class ComprehensiveSpeedService(BaseService):
         
         return processed_results
     
-    def _calculate_overall_score(self, scores: Dict[str, float]) -> float:
-        """
-        Calculate overall score with business impact weighting.
-        Based on best practices from temp_place_z implementation.
-        """
-        try:
-            # Business impact weighting (what matters most for conversions)
-            weights = {
-                'performance': 0.25,      # Speed affects user experience and SEO
-                'accessibility': 0.15,    # Legal compliance and user inclusivity
-                'best_practices': 0.15,   # Security and reliability
-                'seo': 0.15,              # Search engine visibility
-                'trust': 0.20,            # Critical for business credibility
-                'cro': 0.10               # Revenue optimization
-            }
-            
-            overall_score = 0.0
-            total_weight = 0.0
-            
-            for metric, weight in weights.items():
-                if metric in scores and scores[metric] is not None:
-                    overall_score += scores[metric] * weight
-                    total_weight += weight
-            
-            # Normalize score if some metrics are missing
-            if total_weight > 0:
-                final_score = overall_score / total_weight
-            else:
-                final_score = 0.0
-            
-            return round(final_score, 2)
-            
-        except Exception as e:
-            logger.error(f"Error calculating overall score: {e}")
-            return 0.0
+
     
     def _update_service_health(self):
         """Update service health status."""
         try:
-            # Check PageSpeed service health
-            pagespeed_health = self.pagespeed_service.get_service_health()
-            self.service_health["pagespeed"] = pagespeed_health.get("status", "unknown")
-            
-            # Check Pingdom service health
-            pingdom_health = self.pingdom_service.get_service_health()
-            self.service_health["pingdom"] = pingdom_health.get("status", "unknown")
+            # Check unified analyzer service health
+            unified_health = self.unified_analyzer.get_service_health()
+            self.service_health["unified"] = unified_health.get("status", "unknown")
             
             # Determine overall health
-            if (self.service_health["pagespeed"] == "healthy" and 
-                self.service_health["pingdom"] == "healthy"):
+            if self.service_health["unified"] == "healthy":
                 self.service_health["overall"] = "healthy"
-            elif (self.service_health["pagespeed"] == "healthy" or 
-                  self.service_health["pingdom"] == "healthy"):
+            elif self.service_health["unified"] == "degraded":
                 self.service_health["overall"] = "degraded"
             else:
                 self.service_health["overall"] = "unhealthy"
@@ -402,8 +329,7 @@ class ComprehensiveSpeedService(BaseService):
             "service": "comprehensive_speed",
             "status": self.service_health["overall"],
             "services": {
-                "pagespeed": self.service_health["pagespeed"],
-                "pingdom": self.service_health["pingdom"]
+                "unified": self.service_health["unified"]
             },
             "rate_limits": {
                 "comprehensive_speed": getattr(self.api_config, 'COMPREHENSIVE_SPEED_RATE_LIMIT_PER_MINUTE', 30)
@@ -411,8 +337,7 @@ class ComprehensiveSpeedService(BaseService):
             "features": {
                 "smart_retry": True,
                 "intelligent_caching": True,
-                "hybrid_scoring": True,
-                "pingdom_integration": True,
+                "unified_scoring": True,
                 "batch_processing": True
             }
         }

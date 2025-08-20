@@ -88,30 +88,30 @@ class FallbackScoringService(BaseService):
         if not isinstance(data, dict):
             return False
         
-        # Accept either pagespeed_failure_reason or lighthouse_failure_reason
+        # Accept either unified_failure_reason or lighthouse_failure_reason
         required_fields = ['website_url', 'business_id']
         if not all(field in data for field in required_fields):
             return False
         
         # Must have at least one failure reason
-        failure_reasons = ['pagespeed_failure_reason', 'lighthouse_failure_reason']
+        failure_reasons = ['unified_failure_reason', 'lighthouse_failure_reason']
         return any(reason in data for reason in failure_reasons)
     
     async def run_fallback_scoring(
         self,
         website_url: str,
         business_id: str,
-        pagespeed_failure_reason: str,
+        unified_failure_reason: str,
         run_id: Optional[str] = None,
         fallback_parameters: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Run fallback scoring when PageSpeed fails.
+        Run fallback scoring when unified analysis fails.
         
         Args:
             website_url: URL of the website to score
             business_id: Business identifier for tracking
-            pagespeed_failure_reason: Reason why PageSpeed failed
+            unified_failure_reason: Reason why unified analysis failed
             run_id: Run identifier for tracking
             fallback_parameters: Additional fallback parameters
             
@@ -126,7 +126,7 @@ class FallbackScoringService(BaseService):
                 run_id=run_id,
                 business_id=business_id,
                 website_url=website_url,
-                failure_reason=pagespeed_failure_reason
+                failure_reason=unified_failure_reason
             )
             
             # Check rate limiting
@@ -141,7 +141,7 @@ class FallbackScoringService(BaseService):
                 )
             
             # Analyze failure and determine fallback strategy
-            failure_analysis = self._analyze_failure(pagespeed_failure_reason)
+            failure_analysis = self._analyze_failure(unified_failure_reason)
             
             # Execute fallback strategy
             if failure_analysis["decision"] == FallbackDecision.NO_FALLBACK:
@@ -176,12 +176,12 @@ class FallbackScoringService(BaseService):
             
             # Create fallback score with reduced confidence
             fallback_score = self._create_fallback_score(
-                comprehensive_result, pagespeed_failure_reason, run_id, business_id, website_url
+                comprehensive_result, unified_failure_reason, run_id, business_id, website_url
             )
             
             # Create fallback reason tracking
             fallback_reason = self._create_fallback_reason(
-                pagespeed_failure_reason, failure_analysis, retry_attempts, True
+                unified_failure_reason, failure_analysis, retry_attempts, True
             )
             
             # Assess fallback quality
@@ -399,12 +399,12 @@ class FallbackScoringService(BaseService):
             
             # Create fallback scores dictionary
             fallback_scores = {
-                "pingdom_trust": scores.get("pingdom_trust", 0.0),
-                "pingdom_cro": scores.get("pingdom_cro", 0.0),
-                "pagespeed_performance": scores.get("pagespeed_performance", 0.0),
-                "pagespeed_accessibility": scores.get("pagespeed_accessibility", 0.0),
-                "pagespeed_best_practices": scores.get("pagespeed_best_practices", 0.0),
-                "pagespeed_seo": scores.get("pagespeed_seo", 0.0),
+                "trust_metrics": scores.get("trust", 0.0),
+                "cro_metrics": scores.get("cro", 0.0),
+                "performance_metrics": scores.get("performance", 0.0),
+                "accessibility_metrics": scores.get("accessibility", 0.0),
+                "best_practices_metrics": scores.get("bestPractices", 0.0),
+                "seo_metrics": scores.get("seo", 0.0),
                 "overall_score": scores.get("overall_score", 0.0)
             }
             
@@ -473,7 +473,7 @@ class FallbackScoringService(BaseService):
     
     def _create_fallback_reason(
         self,
-        pagespeed_failure_reason: str,
+        unified_failure_reason: str,
         failure_analysis: Dict[str, Any],
         retry_attempts: int,
         success_status: bool
@@ -482,7 +482,7 @@ class FallbackScoringService(BaseService):
         try:
             fallback_reason = FallbackReasonDetails(
                 failure_type=failure_analysis["failure_type"],
-                error_message=pagespeed_failure_reason,
+                error_message=unified_failure_reason,
                 severity_level=failure_analysis["severity"].value,
                 fallback_decision=failure_analysis["decision"].value,
                 retry_attempts=retry_attempts,
@@ -497,7 +497,7 @@ class FallbackScoringService(BaseService):
             # Return default fallback reason on error
             return FallbackReasonDetails(
                 failure_type="UNKNOWN_ERROR",
-                error_message=pagespeed_failure_reason,
+                error_message=unified_failure_reason,
                 severity_level="medium",
                 fallback_decision="immediate_fallback",
                 retry_attempts=retry_attempts,
@@ -564,37 +564,20 @@ class FallbackScoringService(BaseService):
             total_points = 0
             available_points = 0
             
-            # Check PageSpeed data (4 main scores + core web vitals)
-            pagespeed_data = comprehensive_result.get("pagespeed_data", {})
-            pagespeed_fields = [
-                "performance_score", "accessibility_score", "best_practices_score", "seo_score",
-                "first_contentful_paint", "largest_contentful_paint", "cumulative_layout_shift",
-                "total_blocking_time", "speed_index"
+            # Check unified analysis data (6 main scores)
+            unified_data = comprehensive_result.get("scores", {})
+            unified_fields = [
+                "performance", "accessibility", "bestPractices", "seo", "trust", "cro"
             ]
-            for field in pagespeed_fields:
+            for field in unified_fields:
                 total_points += 1
-                if pagespeed_data.get(field) is not None:
+                if unified_data.get(field) is not None:
                     available_points += 1
             
-            # Check Pingdom data (6 fields)
-            pingdom_data = comprehensive_result.get("pingdom_data", {})
-            pingdom_fields = [
-                "trust_score", "cro_score", "ssl_status", "response_time", "uptime", "security_headers"
-            ]
-            for field in pingdom_fields:
+            # Check overall score
+            if "overall" in unified_data:
                 total_points += 1
-                if pingdom_data.get(field) is not None:
-                    available_points += 1
-            
-            # Check overall scores (7 fields)
-            scores = comprehensive_result.get("scores", {})
-            score_fields = [
-                "pagespeed_performance", "pagespeed_accessibility", "pagespeed_best_practices",
-                "pagespeed_seo", "pingdom_trust", "pingdom_cro", "overall_score"
-            ]
-            for field in score_fields:
-                total_points += 1
-                if scores.get(field) is not None:
+                if unified_data.get("overall") is not None:
                     available_points += 1
             
 
@@ -681,12 +664,12 @@ class FallbackScoringService(BaseService):
             indicators["scores_reasonable"] = (
                 0 <= fallback_scores.get("overall_score", 0) <= 100 and
                 all(0 <= score <= 100 for score in [
-                    fallback_scores.get("pingdom_trust", 0),
-                    fallback_scores.get("pingdom_cro", 0),
-                    fallback_scores.get("pagespeed_performance", 0),
-                    fallback_scores.get("pagespeed_accessibility", 0),
-                    fallback_scores.get("pagespeed_best_practices", 0),
-                    fallback_scores.get("pagespeed_seo", 0)
+                                fallback_scores.get("trust_metrics", 0),
+            fallback_scores.get("cro_metrics", 0),
+            fallback_scores.get("performance_metrics", 0),
+            fallback_scores.get("accessibility_metrics", 0),
+            fallback_scores.get("best_practices_metrics", 0),
+            fallback_scores.get("seo_metrics", 0)
                 ])
             )
             

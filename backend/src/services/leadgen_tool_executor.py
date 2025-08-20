@@ -11,7 +11,7 @@ from datetime import datetime
 
 from src.services.google_places_service import GooglePlacesService
 from src.services.yelp_fusion_service import YelpFusionService
-from src.services.google_pagespeed_service import GooglePageSpeedService
+from src.services.unified import UnifiedAnalyzer
 from src.services.comprehensive_speed_service import ComprehensiveSpeedService
 from src.services.score_validation_service import ScoreValidationService
 from src.services.fallback_scoring_service import FallbackScoringService
@@ -35,7 +35,7 @@ class LeadGenToolExecutor:
     def __init__(self):
         self.google_places_service = GooglePlacesService()
         self.yelp_service = YelpFusionService()
-        self.pagespeed_service = GooglePageSpeedService()
+        self.unified_analyzer = UnifiedAnalyzer()
         self.comprehensive_speed_service = ComprehensiveSpeedService()
         self.score_validation_service = ScoreValidationService()
         self.fallback_scoring_service = FallbackScoringService()
@@ -340,24 +340,22 @@ class LeadGenToolExecutor:
                     try:
                         logger.info(f"📊 Scoring website: {business['website']}")
                         
-                        # Step 1: Run PageSpeed audit using existing service
-                        pagespeed_result = await self.pagespeed_service.run_pagespeed_audit(
-                            website_url=business["website"],
-                            business_id=business.get("business_id", "unknown"),
-                            run_id=arguments.get("run_id"),
+                        # Step 1: Run unified analysis using unified analyzer
+                        unified_result = await self.unified_analyzer.run_comprehensive_analysis(
+                            business["website"],
                             strategy="desktop"
                         )
                         
-                        if pagespeed_result.get("success"):
-                            # PageSpeed succeeded - use its scores
-                            scores = pagespeed_result.get("scores", {})
+                        if unified_result.get("success"):
+                            # Unified analysis succeeded - use its scores
+                            scores = unified_result.get("scores", {})
                             scored_business.update({
-                                "score_perf": int(scores.get("performance_score", 0) * 100),
-                                "score_access": int(scores.get("accessibility_score", 0) * 100),
-                                "score_seo": int(scores.get("seo_score", 0) * 100),
-                                "score_trust": int(scores.get("best_practices_score", 0) * 100),
-                                "score_overall": int(scores.get("overall_score", 0) * 100),
-                                "scoring_method": "pagespeed",
+                                "score_perf": int(scores.get("performance", 0)),
+                                "score_access": int(scores.get("accessibility", 0)),
+                                "score_seo": int(scores.get("seo", 0)),
+                                "score_trust": int(scores.get("trust", 0)),
+                                "score_overall": int(scores.get("overall", 0)),
+                                "scoring_method": "unified",
                                 "confidence_level": "high"
                             })
                             
@@ -372,13 +370,13 @@ class LeadGenToolExecutor:
                                 if comprehensive_result.get("success"):
                                     comprehensive_scores = comprehensive_result.get("scores", {})
                                     scored_business.update({
-                                        "pingdom_trust": comprehensive_scores.get("pingdom_trust", 0),
-                                        "pingdom_cro": comprehensive_scores.get("pingdom_cro", 0),
-                                        "pagespeed_performance": comprehensive_scores.get("pagespeed_performance", 0),
-                                        "pagespeed_accessibility": comprehensive_scores.get("pagespeed_accessibility", 0),
-                                        "pagespeed_best_practices": comprehensive_scores.get("pagespeed_best_practices", 0),
-                                        "pagespeed_seo": comprehensive_scores.get("pagespeed_seo", 0),
-                                        "overall_score": comprehensive_scores.get("overall_score", 0)
+                                        "trust_metrics": comprehensive_scores.get("trust", 0),
+                                        "cro_metrics": comprehensive_scores.get("cro", 0),
+                                        "performance_metrics": comprehensive_scores.get("performance", 0),
+                                        "accessibility_metrics": comprehensive_scores.get("accessibility", 0),
+                                        "best_practices_metrics": comprehensive_scores.get("bestPractices", 0),
+                                        "seo_metrics": comprehensive_scores.get("seo", 0),
+                                        "overall_score": comprehensive_scores.get("overall", 0)
                                     })
                                     
                                     # Step 3: Run score validation for confidence assessment
@@ -407,13 +405,13 @@ class LeadGenToolExecutor:
                                 scored_business["overall_score"] = 0
                                 
                         else:
-                            # PageSpeed failed - use fallback scoring service
-                            logger.warning(f"PageSpeed failed for {business['website']}, using fallback scoring")
+                            # Unified analysis failed - use fallback scoring service
+                            logger.warning(f"Unified analysis failed for {business['website']}, using fallback scoring")
                             
                             fallback_result = await self.fallback_scoring_service.run_fallback_scoring(
                                 website_url=business["website"],
                                 business_id=business.get("business_id", "unknown"),
-                                pagespeed_failure_reason=pagespeed_result.get("error", "unknown_error"),
+                                unified_failure_reason=unified_result.get("error", "unknown_error"),
                                 run_id=arguments.get("run_id")
                             )
                             
@@ -427,12 +425,12 @@ class LeadGenToolExecutor:
                                     "score_overall": fallback_scores.get("overall_score", 0),
                                     "scoring_method": "fallback_comprehensive",
                                     "confidence_level": "medium",
-                                    "fallback_reason": pagespeed_result.get("error"),
+                                    "fallback_reason": unified_result.get("error"),
                                     "fallback_quality": fallback_result.get("quality_metrics", {})
                                 })
                             else:
-                                # Both PageSpeed and fallback failed
-                                logger.error(f"Both PageSpeed and fallback failed for {business['website']}")
+                                # Both unified analysis and fallback failed
+                                logger.error(f"Both unified analysis and fallback failed for {business['website']}")
                                 scored_business.update({
                                     "score_perf": 0,
                                     "score_access": 0,
@@ -481,11 +479,11 @@ class LeadGenToolExecutor:
                             issues.append(f"Trust signals missing ({scored_business['score_trust']}/100)")
                         
                         # Add comprehensive speed analysis issues if available
-                        if scored_business.get("pingdom_trust", 0) < 60:
+                        if scored_business.get("trust_metrics", 0) < 60:
                             issues.append("Missing trust signals (privacy policy, contact info)")
-                        if scored_business.get("pingdom_cro", 0) < 60:
+                        if scored_business.get("cro_metrics", 0) < 60:
                             issues.append("Conversion optimization elements needed")
-                        if scored_business.get("pagespeed_accessibility", 0) < 60:
+                        if scored_business.get("accessibility_metrics", 0) < 60:
                             issues.append("Mobile usability improvements required")
                         
                         scored_business["top_issues"] = issues[:3]  # Top 3 issues
