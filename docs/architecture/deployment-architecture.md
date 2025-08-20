@@ -276,7 +276,7 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE_URL: https://leadgen-staging.vercel.app/api
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_API_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
           
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
@@ -359,7 +359,7 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE_URL: https://leadgen.vercel.app/api
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_API_KEY: ${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}
           NODE_ENV: production
           
       - name: Install Vercel CLI

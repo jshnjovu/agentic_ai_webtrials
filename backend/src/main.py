@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from src.core import settings, validate_environment
-from src.api.v1 import authentication, business_search, rate_limit_monitoring, website_scoring, leadgen_chat
+from src.api.v1 import authentication, business_search, rate_limit_monitoring, website_scoring, leadgen_chat, test_supabase
 from src.middleware.rate_limit_middleware import YelpFusionRateLimitMiddleware
 
 
@@ -58,6 +58,7 @@ app.include_router(business_search.router, prefix=settings.API_V1_STR)
 app.include_router(rate_limit_monitoring.router, prefix=settings.API_V1_STR)
 app.include_router(website_scoring.router, prefix=settings.API_V1_STR)
 app.include_router(leadgen_chat.router, prefix=settings.API_V1_STR)
+app.include_router(test_supabase.router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")
