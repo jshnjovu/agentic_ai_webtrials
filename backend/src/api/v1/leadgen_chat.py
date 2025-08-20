@@ -242,7 +242,7 @@ async def confirm_action(request: ConfirmationRequest):
                     tool_result = await tool_executor.execute_tool("discover_businesses", {
                         "location": location,
                         "niche": niche,
-                        "max_businesses": 10
+                        "max_businesses": 4
                     })
                     
                     # Update workflow state with discovery results

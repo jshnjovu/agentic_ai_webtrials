@@ -23,7 +23,7 @@ class BusinessSearchRequest(BaseModel):
     location_type: LocationType = Field(default=LocationType.CITY, description="Type of location input")
     category: Optional[str] = Field(None, description="Business category or type to filter by", max_length=100)
     radius: Optional[int] = Field(default=5000, description="Search radius in meters (max 50000)", ge=100, le=50000)
-    max_results: Optional[int] = Field(default=10, description="Maximum number of results to return", ge=1, le=20)
+    max_results: Optional[int] = Field(default=4, description="Maximum number of results to return", ge=1, le=20)
     run_id: Optional[str] = Field(None, description="Unique identifier for the processing run")
     
     @field_validator('radius')

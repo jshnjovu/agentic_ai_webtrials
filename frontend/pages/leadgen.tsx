@@ -53,7 +53,7 @@ export default function LeadGenBuilder() {
       const discoverResponse = await fetch('/api/v1/leadgen/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ location, niche, max_businesses: 10 })
+        body: JSON.stringify({ location, niche, max_businesses: 4 })
       });
       
       if (!discoverResponse.ok) {

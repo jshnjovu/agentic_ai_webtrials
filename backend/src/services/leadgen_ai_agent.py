@@ -190,7 +190,7 @@ class LeadGenAIAgent:
             tool_result = await self.tool_executor.execute_tool("discover_businesses", {
                 "location": workflow_state.location,
                 "niche": workflow_state.niche,
-                "max_businesses": 10,
+                "max_businesses": 4,
                 "session_id": session_id
             })
             

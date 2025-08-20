@@ -115,7 +115,6 @@ export default function LeadGenSequentialResults({
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Website</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -123,7 +122,18 @@ export default function LeadGenSequentialResults({
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-4 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{business.business_name}</div>
+                          {business.website ? (
+                            <a 
+                              href={business.website} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 text-sm font-medium hover:underline"
+                            >
+                              {business.business_name}
+                            </a>
+                          ) : (
+                            <div className="text-sm font-medium text-gray-900">{business.business_name}</div>
+                          )}
                           {business.contact_name && (
                             <div className="text-sm text-gray-500">Contact: {business.contact_name}</div>
                           )}
@@ -151,21 +161,7 @@ export default function LeadGenSequentialResults({
                           {business.address}
                         </div>
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        {business.website ? (
-                          <a 
-                            href={business.website} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
-                          >
-                            <Globe className="w-3 h-3 mr-1" />
-                            Visit Site
-                          </a>
-                        ) : (
-                          <span className="text-gray-400 text-sm">No website</span>
-                        )}
-                      </td>
+
                     </tr>
                   ))}
                 </tbody>

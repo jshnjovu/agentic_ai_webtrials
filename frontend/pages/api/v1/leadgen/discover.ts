@@ -71,11 +71,7 @@ export default async function handler(
         // Build full address
         const addressParts = [
           business.location?.address1,
-          business.location?.address2,
-          business.location?.city,
-          business.location?.state,
-          business.location?.zip_code,
-          business.location?.country
+          business.location?.address2
         ].filter(Boolean);
         const fullAddress = addressParts.join(', ');
 

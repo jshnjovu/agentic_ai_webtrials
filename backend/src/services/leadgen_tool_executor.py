@@ -143,7 +143,7 @@ class LeadGenToolExecutor:
         
         location = arguments["location"]
         niche = arguments["niche"]
-        max_businesses = arguments.get("max_businesses", 10)
+        max_businesses = arguments.get("max_businesses", 4)
         
         logger.info(f"🔍 Discovering {niche} businesses in {location}")
         
