@@ -1,0 +1,44 @@
+{
+  "name": "domain-history-analysis",
+  "version": "1.0.0",
+  "description": "Domain History and Age Analysis Service using WHOISXMLAPIs",
+  "main": "domain-analysis.js",
+  "scripts": {
+    "test": "node test-unit.js",
+    "test:integration": "node test-domain-analysis.js",
+    "test:corrected": "node test-corrected.js",
+    "test:urls": "node test-urls.js",
+    "demo": "node demo.js",
+    "start": "node demo.js"
+  },
+  "keywords": [
+    "domain",
+    "whois",
+    "dns",
+    "history",
+    "age",
+    "analysis",
+    "credibility",
+    "business",
+    "lead-generation"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "your-repo-url-here"
+  },
+  "bugs": {
+    "url": "your-repo-url-here/issues"
+  },
+  "homepage": "your-repo-url-here#readme"
+}
+
