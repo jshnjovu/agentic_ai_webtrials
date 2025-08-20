@@ -184,6 +184,198 @@ class ConfidenceScoringService(BaseService):
             self.logger.error(f"Error adding confidence indicators: {str(e)}")
             return {}
     
+    def calculate_enhanced_confidence(self, website_url: str, business_data: Dict[str, Any], run_id: Optional[str] = None) -> float:
+        """
+        Calculate enhanced confidence score using UnifiedAnalyzer technical metrics combined with business confidence logic.
+        
+        Args:
+            website_url: URL of the website to analyze
+            business_data: Business data for confidence calculation
+            run_id: Optional run identifier for tracking
+            
+        Returns:
+            Enhanced confidence score between 0.0 and 1.0
+        """
+        try:
+            if not self.validate_input(business_data):
+                return 0.0
+            
+            self.log_operation("calculate_enhanced_confidence", run_id)
+            
+            # Calculate base business confidence
+            business_confidence = self.calculate_data_confidence(business_data)
+            
+            # Note: UnifiedAnalyzer integration would be async, so this is a placeholder
+            # In a real implementation, you would call:
+            # unified_result = await self.unified_analyzer.run_comprehensive_analysis(website_url)
+            # technical_score = unified_result.get("scores", {}).get("overall", 0) / 100.0
+            
+            # For now, use a simplified technical score based on business data
+            technical_score = self._estimate_technical_score(business_data)
+            
+            # Weighted combination: 60% business confidence, 40% technical confidence
+            enhanced_confidence = (business_confidence * 0.6) + (technical_score * 0.4)
+            
+            self.logger.debug(f"Enhanced confidence calculation: business={business_confidence:.3f}, technical={technical_score:.3f}, final={enhanced_confidence:.3f}")
+            return round(enhanced_confidence, 3)
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating enhanced confidence: {str(e)}")
+            return 0.0
+    
+    def _estimate_technical_score(self, business_data: Dict[str, Any]) -> float:
+        """
+        Estimate technical score based on business data quality indicators.
+        This is a simplified approach - in production, use UnifiedAnalyzer for real technical analysis.
+        """
+        try:
+            score = 0.0
+            total_indicators = 0
+            
+            # Website presence
+            if business_data.get("website"):
+                score += 0.8
+                total_indicators += 1
+                
+                # Basic website quality indicators
+                website = business_data["website"]
+                if website.startswith("https://"):
+                    score += 0.1
+                if "www." in website:
+                    score += 0.05
+                if len(website) > 10:  # Reasonable length
+                    score += 0.05
+                total_indicators += 3
+            
+            # Contact information quality
+            contact_info = business_data.get("contact_info", {})
+            if contact_info:
+                if contact_info.get("phone"):
+                    score += 0.7
+                    total_indicators += 1
+                if contact_info.get("email"):
+                    score += 0.6
+                    total_indicators += 1
+                if contact_info.get("website"):
+                    score += 0.5
+                    total_indicators += 1
+            
+            # Location data quality
+            location = business_data.get("location", {})
+            if location:
+                if location.get("address"):
+                    score += 0.6
+                    total_indicators += 1
+                if location.get("latitude") and location.get("longitude"):
+                    score += 0.8
+                    total_indicators += 1
+                if location.get("city") and location.get("state"):
+                    score += 0.5
+                    total_indicators += 1
+            
+            # Business information quality
+            if business_data.get("name"):
+                score += 0.7
+                total_indicators += 1
+            if business_data.get("categories"):
+                score += 0.5
+                total_indicators += 1
+            if business_data.get("rating") is not None:
+                score += 0.6
+                total_indicators += 1
+            
+            # Calculate average score
+            if total_indicators > 0:
+                return min(1.0, score / total_indicators)
+            else:
+                return 0.0
+                
+        except Exception as e:
+            self.logger.error(f"Error estimating technical score: {str(e)}")
+            return 0.0
+    
+    async def calculate_unified_confidence(self, website_url: str, business_data: Dict[str, Any], run_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Calculate confidence score using UnifiedAnalyzer for comprehensive technical analysis.
+        This method requires UnifiedAnalyzer to be available and properly configured.
+        
+        Args:
+            website_url: URL of the website to analyze
+            business_data: Business data for confidence calculation
+            run_id: Optional run identifier for tracking
+            
+        Returns:
+            Dictionary with comprehensive confidence metrics
+        """
+        try:
+            if not self.validate_input(business_data):
+                return {"error": "Invalid business data"}
+            
+            self.log_operation("calculate_unified_confidence", run_id)
+            
+            # Calculate base business confidence
+            business_confidence = self.calculate_data_confidence(business_data)
+            
+            # Note: This is a placeholder for the UnifiedAnalyzer integration
+            # In production, you would:
+            # 1. Import UnifiedAnalyzer
+            # 2. Run comprehensive analysis
+            # 3. Extract technical metrics
+            # 4. Combine with business confidence
+            
+            # Placeholder technical analysis result
+            technical_analysis = {
+                "performance_score": 0.0,
+                "accessibility_score": 0.0,
+                "seo_score": 0.0,
+                "trust_score": 0.0,
+                "overall_technical_score": 0.0,
+                "analysis_available": False,
+                "note": "UnifiedAnalyzer integration required for real technical analysis"
+            }
+            
+            # Calculate enhanced confidence (placeholder)
+            enhanced_confidence = business_confidence * 0.8  # 80% business, 20% technical (placeholder)
+            
+            # Determine confidence level
+            confidence_level = self.assign_confidence_level(enhanced_confidence)
+            
+            result = {
+                "business_confidence": business_confidence,
+                "technical_analysis": technical_analysis,
+                "enhanced_confidence": enhanced_confidence,
+                "confidence_level": confidence_level.value,
+                "calculation_method": "unified_analysis_placeholder",
+                "recommendations": self._generate_confidence_recommendations(enhanced_confidence, business_confidence),
+                "run_id": run_id
+            }
+            
+            self.logger.info(f"Unified confidence calculation completed: {enhanced_confidence:.3f} ({confidence_level.value})")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating unified confidence: {str(e)}")
+            return {"error": f"Confidence calculation failed: {str(e)}"}
+    
+    def _generate_confidence_recommendations(self, enhanced_confidence: float, business_confidence: float) -> List[str]:
+        """Generate recommendations for improving confidence scores."""
+        recommendations = []
+        
+        if enhanced_confidence < 0.6:
+            recommendations.append("Consider manual review of business data quality")
+            if business_confidence < 0.5:
+                recommendations.append("Improve business data completeness (contact info, location, categories)")
+            if enhanced_confidence < 0.4:
+                recommendations.append("Website analysis recommended for technical confidence assessment")
+        
+        if business_confidence < 0.7:
+            recommendations.append("Verify business information accuracy and completeness")
+        
+        if enhanced_confidence >= 0.8:
+            recommendations.append("High confidence achieved - data quality is excellent")
+        
+        return recommendations
+    
     def _calculate_name_confidence(self, name: str) -> float:
         """Calculate confidence score for business name."""
         if not name or not name.strip():

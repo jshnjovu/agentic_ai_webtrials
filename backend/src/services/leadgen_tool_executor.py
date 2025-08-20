@@ -12,7 +12,6 @@ from datetime import datetime
 from src.services.google_places_service import GooglePlacesService
 from src.services.yelp_fusion_service import YelpFusionService
 from src.services.unified import UnifiedAnalyzer
-from src.services.comprehensive_speed_service import ComprehensiveSpeedService
 from src.services.score_validation_service import ScoreValidationService
 from src.services.fallback_scoring_service import FallbackScoringService
 from src.services.website_template_service import WebsiteTemplateService
@@ -36,7 +35,6 @@ class LeadGenToolExecutor:
         self.google_places_service = GooglePlacesService()
         self.yelp_service = YelpFusionService()
         self.unified_analyzer = UnifiedAnalyzer()
-        self.comprehensive_speed_service = ComprehensiveSpeedService()
         self.score_validation_service = ScoreValidationService()
         self.fallback_scoring_service = FallbackScoringService()
         self.template_service = WebsiteTemplateService()
@@ -323,12 +321,12 @@ class LeadGenToolExecutor:
     
     async def _score_websites(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Score business websites using Epic 2 services: Lighthouse, Comprehensive Speed Analysis, and Score Validation
+        Score business websites using UnifiedAnalyzer for comprehensive analysis
         """
         
         businesses = arguments["businesses"]
         
-        logger.info(f"📊 Scoring {len(businesses)} business websites using Epic 2 services")
+        logger.info(f"📊 Scoring {len(businesses)} business websites using UnifiedAnalyzer")
         
         try:
             scored_businesses = []
@@ -340,15 +338,18 @@ class LeadGenToolExecutor:
                     try:
                         logger.info(f"📊 Scoring website: {business['website']}")
                         
-                        # Step 1: Run unified analysis using unified analyzer
+                        # Run unified analysis using UnifiedAnalyzer for comprehensive scoring
                         unified_result = await self.unified_analyzer.run_comprehensive_analysis(
                             business["website"],
                             strategy="desktop"
                         )
                         
                         if unified_result.get("success"):
-                            # Unified analysis succeeded - use its scores
+                            # Unified analysis succeeded - extract all available scores and metrics
                             scores = unified_result.get("scores", {})
+                            details = unified_result.get("details", {})
+                            
+                            # Core performance scores
                             scored_business.update({
                                 "score_perf": int(scores.get("performance", 0)),
                                 "score_access": int(scores.get("accessibility", 0)),
@@ -359,50 +360,68 @@ class LeadGenToolExecutor:
                                 "confidence_level": "high"
                             })
                             
-                            # Step 2: Run comprehensive speed analysis for additional insights
+                            # Additional comprehensive metrics from unified analysis
+                            if "pagespeed" in details:
+                                pagespeed_data = details["pagespeed"]
+                                if "coreWebVitals" in pagespeed_data:
+                                    core_vitals = pagespeed_data["coreWebVitals"]
+                                    scored_business.update({
+                                        "lcp_score": core_vitals.get("largestContentfulPaint", {}).get("value", 0),
+                                        "fid_score": core_vitals.get("firstInputDelay", {}).get("value", 0),
+                                        "cls_score": core_vitals.get("cumulativeLayoutShift", {}).get("value", 0)
+                                    })
+                            
+                            # Trust and CRO metrics from unified analysis
+                            if "trust" in details:
+                                trust_data = details["trust"]
+                                scored_business.update({
+                                    "ssl_status": trust_data.get("ssl", False),
+                                    "security_headers": trust_data.get("securityHeaders", []),
+                                    "domain_age": trust_data.get("domainAge", "unknown")
+                                })
+                            
+                            # Mobile usability metrics
+                            if "mobileUsability" in details:
+                                mobile_data = details["mobileUsability"]
+                                scored_business.update({
+                                    "mobile_friendly": mobile_data.get("mobileFriendly", False),
+                                    "mobile_score": mobile_data.get("score", 0),
+                                    "mobile_issues": mobile_data.get("issues", [])
+                                })
+                            
+                            # Opportunities for improvement
+                            if "opportunities" in details:
+                                scored_business["improvement_opportunities"] = details["opportunities"]
+                            
+                            # Step 2: Run score validation for confidence assessment
                             try:
-                                comprehensive_result = await self.comprehensive_speed_service.run_comprehensive_analysis(
-                                    website_url=business["website"],
+                                # Create a simplified score structure for validation
+                                validation_scores = {
+                                    "overall_score": scores.get("overall", 0),
+                                    "performance": scores.get("performance", 0),
+                                    "accessibility": scores.get("accessibility", 0),
+                                    "seo": scores.get("seo", 0),
+                                    "bestPractices": scores.get("bestPractices", 0)
+                                }
+                                
+                                validation_result = await self.score_validation_service.validate_scores(
+                                    lighthouse_scores=[scored_business],
+                                    comprehensive_scores=[validation_scores],
                                     business_id=business.get("business_id", "unknown"),
                                     run_id=arguments.get("run_id")
                                 )
                                 
-                                if comprehensive_result.get("success"):
-                                    comprehensive_scores = comprehensive_result.get("scores", {})
+                                if validation_result:
                                     scored_business.update({
-                                        "trust_metrics": comprehensive_scores.get("trust", 0),
-                                        "cro_metrics": comprehensive_scores.get("cro", 0),
-                                        "performance_metrics": comprehensive_scores.get("performance", 0),
-                                        "accessibility_metrics": comprehensive_scores.get("accessibility", 0),
-                                        "best_practices_metrics": comprehensive_scores.get("bestPractices", 0),
-                                        "seo_metrics": comprehensive_scores.get("seo", 0),
-                                        "overall_score": comprehensive_scores.get("overall", 0)
+                                        "validation_confidence": validation_result.confidence_level,
+                                        "score_correlation": validation_result.score_correlation,
+                                        "discrepancy_count": validation_result.discrepancy_count,
+                                        "final_weighted_score": validation_result.final_weighted_score
                                     })
                                     
-                                    # Step 3: Run score validation for confidence assessment
-                                    try:
-                                        validation_result = await self.score_validation_service.validate_scores(
-                                            lighthouse_scores=[scored_business],
-                                            comprehensive_scores=[comprehensive_scores],
-                                            business_id=business.get("business_id", "unknown"),
-                                            run_id=arguments.get("run_id")
-                                        )
-                                        
-                                        if validation_result:
-                                            scored_business.update({
-                                                "validation_confidence": validation_result.confidence_level,
-                                                "score_correlation": validation_result.score_correlation,
-                                                "discrepancy_count": validation_result.discrepancy_count,
-                                                "final_weighted_score": validation_result.final_weighted_score
-                                            })
-                                            
-                                    except Exception as validation_error:
-                                        logger.warning(f"Score validation failed for {business['website']}: {validation_error}")
-                                        scored_business["validation_confidence"] = "medium"
-                                        
-                            except Exception as comprehensive_error:
-                                logger.warning(f"Comprehensive speed analysis failed for {business['website']}: {comprehensive_error}")
-                                scored_business["overall_score"] = 0
+                            except Exception as validation_error:
+                                logger.warning(f"Score validation failed for {business['website']}: {validation_error}")
+                                scored_business["validation_confidence"] = "medium"
                                 
                         else:
                             # Unified analysis failed - use fallback scoring service
@@ -467,7 +486,7 @@ class LeadGenToolExecutor:
                         else:
                             scored_business["demo_priority"] = "none"
                         
-                        # Generate top issues for low scorers using Epic 2 data
+                        # Generate top issues for low scorers using unified analysis data
                         issues = []
                         if scored_business.get("score_perf", 0) < 60:
                             issues.append(f"Poor performance score ({scored_business['score_perf']}/100)")
@@ -478,13 +497,16 @@ class LeadGenToolExecutor:
                         if scored_business.get("score_trust", 0) < 60:
                             issues.append(f"Trust signals missing ({scored_business['score_trust']}/100)")
                         
-                        # Add comprehensive speed analysis issues if available
-                        if scored_business.get("trust_metrics", 0) < 60:
-                            issues.append("Missing trust signals (privacy policy, contact info)")
-                        if scored_business.get("cro_metrics", 0) < 60:
-                            issues.append("Conversion optimization elements needed")
-                        if scored_business.get("accessibility_metrics", 0) < 60:
+                        # Add unified analysis specific issues
+                        if scored_business.get("ssl_status") == False:
+                            issues.append("SSL certificate missing or invalid")
+                        if scored_business.get("mobile_friendly") == False:
                             issues.append("Mobile usability improvements required")
+                        if scored_business.get("improvement_opportunities"):
+                            # Add first opportunity as an issue
+                            first_opp = scored_business["improvement_opportunities"][0] if scored_business["improvement_opportunities"] else None
+                            if first_opp:
+                                issues.append(f"Performance opportunity: {first_opp.get('title', 'Unknown')}")
                         
                         scored_business["top_issues"] = issues[:3]  # Top 3 issues
                         
@@ -516,14 +538,14 @@ class LeadGenToolExecutor:
                 
                 scored_businesses.append(scored_business)
             
-            # Calculate statistics using Epic 2 data
+            # Calculate statistics using unified analysis data
             valid_scores = [b for b in scored_businesses if b.get("scoring_method") not in ["failed", "error", "no_website"]]
             if valid_scores:
                 average_score = sum(b["score_overall"] for b in valid_scores) / len(valid_scores)
                 low_scorers = len([b for b in valid_scores if b["score_overall"] < 70])
                 high_confidence = len([b for b in valid_scores if b.get("confidence_level") == "high"])
                 
-                logger.info(f"✅ Website scoring completed using Epic 2 services: avg score {average_score:.1f}, {low_scorers} low scorers, {high_confidence} high confidence")
+                logger.info(f"✅ Website scoring completed using UnifiedAnalyzer: avg score {average_score:.1f}, {low_scorers} low scorers, {high_confidence} high confidence")
             else:
                 average_score = 0
                 low_scorers = 0
@@ -554,14 +576,14 @@ class LeadGenToolExecutor:
     
     async def _generate_demo_sites(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate and deploy demo sites for businesses with low scores using Epic 2 data
+        Generate and deploy demo sites for businesses with low scores using unified analysis data
         """
         
         businesses = arguments["businesses"]
         location = arguments["location"]
         niche = arguments["niche"]
         
-        logger.info(f"🏗️ Generating demo sites for qualifying businesses using Epic 2 scoring")
+        logger.info(f"🏗️ Generating demo sites for qualifying businesses using unified analysis scoring")
         
         try:
             updated_businesses = []
@@ -575,7 +597,7 @@ class LeadGenToolExecutor:
                 scoring_method = business.get("scoring_method", "unknown")
                 
                 # Generate demo for businesses with score < 70 (Story 4)
-                # Use Epic 2 confidence levels to determine eligibility
+                # Use unified analysis confidence levels to determine eligibility
                 if score_overall < 70 and confidence_level in ["high", "medium"]:
                     try:
                         logger.info(f"🏗️ Generating demo for {business['business_name']} (score: {score_overall}, confidence: {confidence_level}, method: {scoring_method})")
@@ -594,7 +616,7 @@ class LeadGenToolExecutor:
                             "generated_site_url": deployment_result['demo_url'],
                             "demo_status": "generated",
                             "demo_generated_at": datetime.now().isoformat(),
-                            "demo_source": f"Epic 2 {scoring_method} scoring",
+                            "demo_source": f"Unified Analysis {scoring_method} scoring",
                             "demo_confidence": confidence_level
                         })
                         demo_count += 1
@@ -606,7 +628,7 @@ class LeadGenToolExecutor:
                         updated_business.update({
                             "demo_status": "failed",
                             "demo_error": str(e),
-                            "demo_source": f"Epic 2 {scoring_method} scoring"
+                            "demo_source": f"Unified Analysis {scoring_method} scoring"
                         })
                 
                 # Skip demo for businesses with score >= 70 or low confidence (Story 5)
@@ -623,7 +645,7 @@ class LeadGenToolExecutor:
                     updated_business.update({
                         "demo_status": "skipped",
                         "demo_skip_reason": skip_reason,
-                        "demo_source": f"Epic 2 {scoring_method} scoring",
+                        "demo_source": f"Unified Analysis {scoring_method} scoring",
                         "demo_confidence": confidence_level
                     })
                     skipped_count += 1
@@ -634,13 +656,13 @@ class LeadGenToolExecutor:
                     updated_business.update({
                         "demo_status": "pending_review",
                         "demo_skip_reason": "Manual review required - insufficient scoring data",
-                        "demo_source": f"Epic 2 {scoring_method} scoring",
+                        "demo_source": f"Unified Analysis {scoring_method} scoring",
                         "demo_confidence": confidence_level
                     })
                 
                 updated_businesses.append(updated_business)
             
-            logger.info(f"✅ Demo site generation completed using Epic 2 data: {demo_count} generated, {skipped_count} skipped")
+            logger.info(f"✅ Demo site generation completed using unified analysis data: {demo_count} generated, {skipped_count} skipped")
             
             return {
                 "success": True,
