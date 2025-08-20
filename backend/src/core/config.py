@@ -72,6 +72,11 @@ class APIConfig(BaseSettings):
     # Geoapify Configuration
     GEOAPIFY_API_KEY: Optional[str] = None
     
+    # WHOIS API Configuration
+    WHOIS_API_KEY: Optional[str] = None
+    WHOIS_API_BASE_URL: Optional[str] = None
+    WHOIS_HISTORY_API_BASE_URL: Optional[str] = None
+    
     # Rate Limiting Configuration
     SERPAPI_RATE_LIMIT_PER_MINUTE: int = 100
     GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE: int = 100
@@ -155,6 +160,18 @@ class APIConfig(BaseSettings):
                 return v
         return v
     
+    @field_validator('WHOIS_API_KEY')
+    @classmethod
+    def validate_whois_key(cls, v):
+        if v is not None and isinstance(v, str):
+            v = v.strip()
+            if len(v) == 0:
+                return None
+            if v in ['your_whois_api_key_here', 'test_key', 'test']:
+                logger.warning("Using placeholder WHOIS API key")
+                return v
+        return v
+    
     @field_validator('GOOGLE_PLACES_RATE_LIMIT_PER_MINUTE')
     @classmethod
     def validate_google_rate_limit(cls, v):
@@ -233,6 +250,9 @@ class APIConfig(BaseSettings):
             
         if self.is_api_key_valid('PINGDOM_API_KEY'):
             available.append('pingdom')
+            
+        if self.is_api_key_valid('WHOIS_API_KEY'):
+            available.append('whois')
             
         return available
 
@@ -328,6 +348,7 @@ def get_configuration_summary() -> dict:
                 "google_places_configured": api_config.is_api_key_valid('GOOGLE_PLACES_API_KEY'),
                 "yelp_fusion_configured": api_config.is_api_key_valid('YELP_FUSION_API_KEY'),
                 "google_pagespeed_configured": api_config.is_api_key_valid('GOOGLE_GENERAL_API_KEY'),
+                "whois_configured": api_config.is_api_key_valid('WHOIS_API_KEY'),
             },
             "rate_limits": {
                 "serpapi_per_minute": api_config.SERPAPI_RATE_LIMIT_PER_MINUTE,
