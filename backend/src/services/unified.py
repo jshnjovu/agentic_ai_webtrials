@@ -831,6 +831,7 @@ class UnifiedAnalyzer:
         return 50
 
     # ------------------------------------------------------------------ #
+    
     async def analyze_uptime(self, url: str) -> Dict[str, Any]:
         try:
             results = []
