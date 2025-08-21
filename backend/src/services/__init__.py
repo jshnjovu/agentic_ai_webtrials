@@ -11,7 +11,6 @@ from .yelp_fusion_auth_service import YelpFusionAuthService
 from .google_places_service import GooglePlacesService
 from .yelp_fusion_service import YelpFusionService
 from .unified import UnifiedAnalyzer
-from .category_mapper_service import CategoryMapperService
 from .business_matching_service import BusinessMatchingService
 from .business_merging_service import BusinessMergingService
 from .duplicate_detection_service import DuplicateDetectionService
@@ -29,7 +28,6 @@ __all__ = [
     'GooglePlacesService',
     'YelpFusionService',
     'UnifiedAnalyzer',
-    'CategoryMapperService',
     'BusinessMatchingService',
     'BusinessMergingService',
     'DuplicateDetectionService',

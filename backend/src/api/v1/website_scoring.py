@@ -8,6 +8,7 @@ from typing import Optional, List
 from datetime import datetime
 import uuid
 import time
+import logging
 
 from src.schemas.website_scoring import (
     WebsiteScoringSummary,
@@ -22,14 +23,19 @@ from src.schemas.website_scoring import (
     FallbackMonitoringResponse,
     PageSpeedAuditRequest,
     PageSpeedAuditResponse,
-    PageSpeedAuditError
+    PageSpeedAuditError,
+    CoreWebVitals,
+    WebsiteScore
 )
 from src.services.unified import UnifiedAnalyzer
 from src.services.rate_limiter import RateLimiter
-from src.models.website_scoring import WebsiteScore
 from src.utils.score_calculation import calculate_overall_score, get_score_insights
 
 router = APIRouter(prefix="/website-scoring", tags=["website-scoring"])
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def get_unified_analyzer() -> UnifiedAnalyzer:
@@ -58,32 +64,156 @@ async def run_pagespeed_audit(
         PageSpeed audit response with analysis scores and metrics
     """
     try:
+        # Log the request details
+        logger.info(f"🚀 Starting PageSpeed audit for URL: {request.website_url}")
+        logger.info(f"📋 Request details: business_id={request.business_id}, run_id={request.run_id}, strategy={request.strategy}")
+        
         # Run PageSpeed analysis using unified analyzer
         analysis_result = await analyzer.run_page_speed_analysis(
             url=request.website_url,
-            strategy=request.strategy
+            strategy=request.strategy.value  # Convert enum to string value
         )
         
-        # Convert unified analyzer result to PageSpeed response format
+        # Check if this is a fallback result
+        is_fallback = analysis_result.get("fallback_reason", {}).get("fallback_scores_used", False)
+        
+        if is_fallback:
+            logger.warning(f"⚠️ Using fallback scores for {request.website_url}")
+            logger.warning(f"📋 Fallback reason: {analysis_result.get('fallback_reason', {}).get('primary_reason', 'UNKNOWN')}")
+        
+        # Extract scores from analysis result
+        scores_data = analysis_result.get("scores", {})
+        
+        # Create WebsiteScore object with proper field mapping
+        website_scores = WebsiteScore(
+            performance=scores_data.get("performance", 0),
+            accessibility=scores_data.get("accessibility", 0),
+            best_practices=scores_data.get("bestPractices", 0),  # Note: unified uses camelCase
+            seo=scores_data.get("seo", 0),
+            overall=round(sum([
+                scores_data.get("performance", 0),
+                scores_data.get("accessibility", 0),
+                scores_data.get("bestPractices", 0),
+                scores_data.get("seo", 0)
+            ]) / 4)  # Calculate overall as average
+        )
+        
+        # Validate scores and log any anomalies
+        _validate_and_log_scores(website_scores, request.website_url)
+        
+        # Extract and map core web vitals
+        core_web_vitals_data = analysis_result.get("coreWebVitals", {})
+        server_metrics_data = analysis_result.get("serverMetrics", {})
+        
+        # Create response with proper schema mapping
         response = PageSpeedAuditResponse(
             success=True,
             website_url=request.website_url,
             business_id=request.business_id,
             run_id=request.run_id,
-            audit_timestamp=datetime.now().isoformat(),
-            strategy=request.strategy,
-            scores=analysis_result["scores"],
-            core_web_vitals=analysis_result["coreWebVitals"],
+            audit_timestamp=time.time(),
+            strategy=request.strategy.value,  # Convert enum to string value
+            scores=website_scores,
+            core_web_vitals={
+                "first_contentful_paint": core_web_vitals_data.get("firstContentfulPaint", {}).get("value") if core_web_vitals_data.get("firstContentfulPaint") else None,
+                "largest_contentful_paint": core_web_vitals_data.get("largestContentfulPaint", {}).get("value") if core_web_vitals_data.get("largestContentfulPaint") else None,
+                "cumulative_layout_shift": core_web_vitals_data.get("cumulativeLayoutShift", {}).get("value") if core_web_vitals_data.get("cumulativeLayoutShift") else None,
+                "total_blocking_time": server_metrics_data.get("totalBlockingTime", {}).get("value") if server_metrics_data.get("totalBlockingTime") else None,
+                "speed_index": core_web_vitals_data.get("speedIndex", {}).get("value") if core_web_vitals_data.get("speedIndex") else None
+            },
             raw_data=analysis_result
         )
+        
+        # Add fallback information to response if applicable
+        if is_fallback:
+            response.raw_data = {
+                **response.raw_data,
+                "fallback_info": {
+                    "fallback_scores_used": True,
+                    "primary_reason": analysis_result.get("fallback_reason", {}).get("primary_reason", "UNKNOWN"),
+                    "fallback_timestamp": analysis_result.get("fallback_reason", {}).get("timestamp"),
+                    "message": f"PageSpeed analysis failed, using fallback scores. Reason: {analysis_result.get('fallback_reason', {}).get('primary_reason', 'UNKNOWN')}"
+                }
+            }
+        
+        # Log final results
+        if is_fallback:
+            logger.warning(f"⚠️ Final fallback scores for {request.website_url}: {website_scores}")
+        else:
+            logger.info(f"✅ PageSpeed analysis completed for {request.website_url}")
+            logger.info(f"📊 Final scores: {website_scores}")
         
         return response
         
     except Exception as e:
+        # Enhanced error logging
+        error_context = {
+            "website_url": request.website_url,
+            "business_id": request.business_id,
+            "run_id": request.run_id,
+            "strategy": request.strategy.value,  # Convert enum to string value
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        logger.error(f"❌ PageSpeed audit failed for {request.website_url}")
+        logger.error(f"🔍 Error context: {error_context}")
+        logger.error(f"📋 Full error details: {e}")
+        
+        # Log additional debugging info if available
+        if hasattr(e, '__traceback__'):
+            import traceback
+            logger.error(f"📚 Traceback: {''.join(traceback.format_tb(e.__traceback__))}")
+        
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error during PageSpeed audit: {str(e)}"
         )
+
+
+def _validate_and_log_scores(scores: WebsiteScore, website_url: str):
+    """Validate scores and log any anomalies for debugging."""
+    try:
+        # Check for extreme scores that might indicate calculation errors
+        extreme_scores = []
+        if scores.performance == 100:
+            extreme_scores.append(f"performance={scores.performance}")
+        if scores.accessibility == 100:
+            extreme_scores.append(f"accessibility={scores.accessibility}")
+        if scores.best_practices == 100:
+            extreme_scores.append(f"best_practices={scores.best_practices}")
+        if scores.seo == 100:
+            extreme_scores.append(f"seo={scores.seo}")
+        
+        if extreme_scores:
+            logger.warning(f"⚠️ Perfect scores detected for {website_url}: {', '.join(extreme_scores)}")
+            logger.warning(f"📋 This might indicate a calculation issue or extremely well-optimized site")
+        
+        # Check for very low scores that might indicate issues
+        low_scores = []
+        if scores.performance <= 10:
+            low_scores.append(f"performance={scores.performance}")
+        if scores.accessibility <= 10:
+            low_scores.append(f"accessibility={scores.accessibility}")
+        if scores.best_practices <= 10:
+            low_scores.append(f"best_practices={scores.best_practices}")
+        if scores.seo <= 10:
+            low_scores.append(f"seo={scores.seo}")
+        
+        if low_scores:
+            logger.info(f"📊 Very low scores for {website_url}: {', '.join(low_scores)}")
+            logger.info(f"📋 This might indicate site issues or legitimate poor performance")
+        
+        # Log overall score calculation
+        expected_overall = round(sum([scores.performance, scores.accessibility, scores.best_practices, scores.seo]) / 4)
+        if expected_overall != scores.overall:
+            logger.warning(f"⚠️ Score calculation mismatch for {website_url}")
+            logger.warning(f"📋 Expected overall: {expected_overall}, got: {scores.overall}")
+            logger.warning(f"📋 Individual scores: p={scores.performance}, a={scores.accessibility}, bp={scores.best_practices}, seo={scores.seo}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error validating scores for {website_url}: {e}")
 
 
 @router.post("/pagespeed/batch")
@@ -106,7 +236,7 @@ async def run_batch_pagespeed_audits(
         urls = [req.website_url for req in requests]
         
         # Run batch analysis using unified analyzer
-        results = await analyzer.run_batch_analysis(urls, strategy=requests[0].strategy)
+        results = await analyzer.run_batch_analysis(urls, strategy=requests[0].strategy.value)
         
         return {
             "success": True,
@@ -150,7 +280,7 @@ async def get_pagespeed_summary(
             average_seo_score=0,
             last_audit_date=None,
             confidence_level=ConfidenceLevel.LOW,
-            audit_strategy=AuditStrategy.MOBILE
+            audit_strategy="mobile"  # Use string value instead of enum
         )
         
         return summary

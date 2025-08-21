@@ -69,8 +69,17 @@ class UnifiedAnalyzer:
         # Check PageSpeed API key
         if self.google_api_key:
             self.service_health["pagespeed"] = "healthy"
+            log.info(f"✅ PageSpeed API key configured: {self.google_api_key[:10]}...")
         else:
             self.service_health["pagespeed"] = "unconfigured"
+            log.error(f"❌ PageSpeed API key NOT configured - this will cause failures!")
+        
+        # Log configuration summary
+        log.info(f"🔧 UnifiedAnalyzer initialized with:")
+        log.info(f"   - PageSpeed API Key: {'SET' if self.google_api_key else 'NOT_SET'}")
+        log.info(f"   - Cache TTL: {self.cache_ttl}s")
+        log.info(f"   - Retry attempts: {self.retry_config['max_attempts']}")
+        log.info(f"   - Rate limiter: {'enabled' if self.rate_limiter else 'disabled'}")
         
         self._update_overall_health()
 
@@ -79,27 +88,47 @@ class UnifiedAnalyzer:
     async def make_request(self, url: str, **kwargs) -> Dict[str, Any]:
         """Enhanced request method with retry logic and rate limiting."""
         try:
-            # Check rate limits
-            can_proceed, message = self.rate_limiter.can_make_request('unified_analyzer')
+            log.info(f"🌐 Making HTTP request to: {url[:100]}...")
+            
+            # Check rate limits - use google_pagespeed since this is for PageSpeed API calls
+            can_proceed, message = self.rate_limiter.can_make_request('google_pagespeed')
             if not can_proceed:
+                log.warning(f"⚠️ Rate limit exceeded: {message}")
                 raise RuntimeError(f"Rate limit exceeded: {message}")
             
+            log.info(f"📡 Sending request...")
             resp = requests.get(url, **kwargs)
+            
+            log.info(f"📊 Response status: {resp.status_code} {resp.reason}")
+            log.info(f"📋 Response headers: {dict(resp.headers)}")
+            
             resp.raise_for_status()
             
             # Record successful request
-            self.rate_limiter.record_request('unified_analyzer', True)
+            self.rate_limiter.record_request('google_pagespeed', True)
+            log.info(f"✅ Request successful, parsing JSON response...")
             
             return resp.json()
+            
         except requests.HTTPError as e:
             # Record failed request
-            self.rate_limiter.record_request('unified_analyzer', False)
+            self.rate_limiter.record_request('google_pagespeed', False)
+            
+            log.error(f"❌ HTTP request failed: {e.response.status_code} {e.response.reason}")
+            log.error(f"🔍 Response headers: {dict(e.response.headers)}")
+            log.error(f"📋 Response body: {e.response.text[:500]}...")
+            
             raise RuntimeError(
                 f"Request failed with status {e.response.status_code}: {e.response.reason}"
             ) from e
+            
         except Exception as e:
             # Record failed request
-            self.rate_limiter.record_request('unified_analyzer', False)
+            self.rate_limiter.record_request('google_pagespeed', False)
+            
+            log.error(f"❌ Request failed with exception: {type(e).__name__}: {e}")
+            log.error(f"🔍 Exception details: {str(e)}")
+            
             raise RuntimeError(f"Request failed: {e}") from e
 
     # ------------------------------------------------------------------ #
@@ -133,45 +162,93 @@ class UnifiedAnalyzer:
     async def run_page_speed_analysis(
         self, url: str, strategy: str = "mobile"
     ) -> Dict[str, Any]:
-        """Enhanced PageSpeed analysis with caching and retry logic."""
-        # Check cache first
+        """Run PageSpeed analysis with improved error handling for unresponsive sites."""
         cache_key = f"pagespeed_{url}_{strategy}"
+        
+        # Check cache first
         if cache_key in self.cache:
-            cached_result = self.cache[cache_key]
-            if time.time() - cached_result['timestamp'] < self.cache_ttl:
-                log.info(f"Returning cached PageSpeed result for {url}")
-                self.analysis_stats["cache_hits"] += 1
-                cached_result['data']['from_cache'] = True
-                return cached_result['data']
+            cached_data = self.cache[cache_key]
+            if time.time() - cached_data['timestamp'] < self.cache_ttl:
+                log.info(f"📋 Returning cached PageSpeed result for {url}")
+                return cached_data['data']
         
-        self.analysis_stats["cache_misses"] += 1
+        log.info(f"🚀 Starting PageSpeed analysis for {url} with strategy: {strategy}")
+        log.info(f"🔑 API Key status: {'SET' if self.google_api_key else 'NOT_SET'}")
         
-        # Implement exponential backoff retry
+        # Track failure reasons for intelligent retry decisions
+        failure_reasons = []
+        
+        # Implement intelligent retry logic
         for attempt in range(self.retry_config['max_attempts']):
             try:
+                log.info(f"📡 PageSpeed attempt {attempt + 1}/{self.retry_config['max_attempts']} for {url}")
+                
                 categories = ["performance", "accessibility", "best-practices", "seo"]
                 category_params = "&".join([f"category={c}" for c in categories])
                 api_url = (
                     f"{self.pagespeed_base_url}?url={url}&strategy={strategy}"
                     f"&{category_params}&prettyPrint=true&key={self.google_api_key}"
                 )
+                
+                log.info(f"🌐 Calling PageSpeed API: {api_url[:100]}...")
 
                 data = await self.make_request(api_url)
 
                 if data.get("error"):
-                    raise RuntimeError(data["error"]["message"])
+                    error_msg = data["error"]["message"]
+                    log.error(f"❌ PageSpeed API returned error: {error_msg}")
+                    
+                    # Classify the error for intelligent retry decisions
+                    if "FAILED_DOCUMENT_REQUEST" in error_msg or "net::ERR_TIMED_OUT" in error_msg:
+                        # Site is legitimately down/unresponsive - don't retry
+                        log.warning(f"🌐 Site {url} appears to be down/unresponsive. No retry needed.")
+                        failure_reasons.append({
+                            "type": "SITE_UNRESPONSIVE",
+                            "message": error_msg,
+                            "attempt": attempt + 1
+                        })
+                        # Record as failure but don't count against circuit breaker
+                        self.rate_limiter.record_request('google_pagespeed', False, failure_type="SITE_UNRESPONSIVE")
+                        break  # Exit retry loop immediately
+                    elif "RATE_LIMIT" in error_msg or "QUOTA_EXCEEDED" in error_msg:
+                        # Rate limit issues - retry with backoff
+                        failure_reasons.append({
+                            "type": "RATE_LIMIT",
+                            "message": error_msg,
+                            "attempt": attempt + 1
+                        })
+                        self.rate_limiter.record_request('google_pagespeed', False, failure_type="RATE_LIMIT")
+                        raise RuntimeError(f"Rate limit exceeded: {error_msg}")
+                    else:
+                        # Other API errors - retry with backoff
+                        failure_reasons.append({
+                            "type": "API_ERROR",
+                            "message": error_msg,
+                            "attempt": attempt + 1
+                        })
+                        self.rate_limiter.record_request('google_pagespeed', False, failure_type="API_ERROR")
+                        raise RuntimeError(error_msg)
 
                 lighthouse = data.get("lighthouseResult", {})
                 scores = lighthouse.get("categories", {})
                 audits = lighthouse.get("audits", {})
 
+                log.info(f"✅ PageSpeed analysis successful for {url}")
+                log.info(f"📊 Raw scores from API: {scores}")
+                log.info(f"📊 Available score categories: {list(scores.keys())}")
+                log.info(f"📊 Audits available: {list(audits.keys())[:10]}...")  # First 10 audit keys
+                
+                # Log individual score calculations for debugging
+                for category, score_data in scores.items():
+                    raw_score = score_data.get("score", 0)
+                    calculated_score = self._calculate_score(raw_score)
+                    log.info(f"📊 {category}: raw={raw_score}, calculated={calculated_score}")
+                
+                # Detect minimal content sites and adjust scores if necessary
+                adjusted_scores = self._adjust_scores_for_minimal_content(scores, audits, url)
+                
                 result = {
-                    "scores": {
-                        "performance": round((scores["performance"]["score"] or 0) * 100),
-                        "accessibility": round((scores["accessibility"]["score"] or 0) * 100),
-                        "bestPractices": round((scores["best-practices"]["score"] or 0) * 100),
-                        "seo": round((scores["seo"]["score"] or 0) * 100),
-                    },
+                    "scores": adjusted_scores,
                     "coreWebVitals": {
                         "largestContentfulPaint": self.extract_metric(
                             audits.get("largest-contentful-paint")
@@ -212,18 +289,331 @@ class UnifiedAnalyzer:
                 return result
                 
             except Exception as e:
-                log.warning(f"PageSpeed attempt {attempt + 1} failed for {url}: {e}")
+                log.warning(f"❌ PageSpeed attempt {attempt + 1} failed for {url}: {e}")
+                log.warning(f"🔍 Error type: {type(e).__name__}")
+                log.warning(f"📋 Error details: {str(e)}")
+                
+                # Classify the error for intelligent retry decisions
+                error_type = "UNKNOWN_ERROR"
+                if "ConnectionError" in str(e) or "Max retries exceeded" in str(e):
+                    error_type = "NETWORK_ERROR"
+                    log.warning(f"🌐 Network connection error for {url} - will retry")
+                elif "SITE_UNRESPONSIVE" in str(e) or "Rate limit exceeded: Circuit breaker is OPEN" in str(e):
+                    log.warning(f"🛑 Stopping retries for {url} due to permanent failure or circuit breaker")
+                    break
+                elif "Rate limit exceeded" in str(e):
+                    error_type = "RATE_LIMIT"
+                    log.warning(f"⏱️ Rate limit exceeded for {url} - will retry with backoff")
+                
+                # Record the failure with appropriate type
+                if error_type == "NETWORK_ERROR":
+                    self.rate_limiter.record_request('google_pagespeed', False, failure_type="NETWORK_ERROR")
+                elif error_type == "RATE_LIMIT":
+                    self.rate_limiter.record_request('google_pagespeed', False, failure_type="RATE_LIMIT")
+                else:
+                    self.rate_limiter.record_request('google_pagespeed', False, failure_type="API_ERROR")
                 
                 if attempt == self.retry_config['max_attempts'] - 1:
-                    raise e
+                    log.error(f"💥 All PageSpeed attempts failed for {url}. Final error: {e}")
+                    break
                 
                 # Calculate delay with exponential backoff
                 delay = min(
                     self.retry_config['base_delay'] * (2 ** attempt),
                     self.retry_config['max_delay']
                 )
-                log.info(f"Retrying PageSpeed for {url} in {delay}s (attempt {attempt + 2})")
+                log.info(f"🔄 Retrying PageSpeed for {url} in {delay}s (attempt {attempt + 2})")
                 await asyncio.sleep(delay)
+        
+        # If we get here, all attempts failed - return fallback scores
+        log.warning(f"🔄 Using fallback scoring for {url} due to PageSpeed failures")
+        return self._generate_fallback_scores(url, failure_reasons)
+
+    def _generate_fallback_scores(self, url: str, failure_reasons: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate intelligent fallback scores based on failure reasons."""
+        log.info(f"🔄 Generating fallback scores for {url}")
+        log.info(f"📋 Failure reasons: {failure_reasons}")
+        
+        # Analyze failure patterns to determine appropriate fallback scores
+        has_site_unresponsive = any(r.get("type") == "SITE_UNRESPONSIVE" for r in failure_reasons)
+        has_rate_limit = any(r.get("type") == "RATE_LIMIT" for r in failure_reasons)
+        has_network_error = any(r.get("type") == "NETWORK_ERROR" for r in failure_reasons)
+        has_api_error = any(r.get("type") == "API_ERROR" for r in failure_reasons)
+        
+        if has_site_unresponsive:
+            # Site is legitimately down - give very low scores
+            log.info(f"🌐 Site {url} is unresponsive - assigning minimal scores")
+            fallback_scores = {
+                "performance": 5,      # Very low - site doesn't load
+                "accessibility": 5,    # Very low - can't access
+                "bestPractices": 5,   # Very low - no content to analyze
+                "seo": 5,             # Very low - no content to index
+            }
+        elif has_network_error:
+            # Network connectivity issues - give moderate scores
+            log.info(f"🌐 Network error for {url} - assigning moderate fallback scores")
+            fallback_scores = {
+                "performance": 40,     # Moderate - network issue, not site issue
+                "accessibility": 40,   # Moderate - network issue, not site issue
+                "bestPractices": 40,  # Moderate - network issue, not site issue
+                "seo": 40,            # Moderate - network issue, not site issue
+            }
+        elif has_rate_limit:
+            # Rate limit exceeded - give moderate scores as fallback
+            log.info(f"⏱️ Rate limit exceeded for {url} - assigning moderate fallback scores")
+            fallback_scores = {
+                "performance": 50,     # Moderate - unknown performance
+                "accessibility": 50,   # Moderate - unknown accessibility
+                "bestPractices": 50,  # Moderate - unknown best practices
+                "seo": 50,            # Moderate - unknown SEO
+            }
+        else:
+            # Other API errors - give low-moderate scores
+            log.info(f"🔌 API error for {url} - assigning low-moderate fallback scores")
+            fallback_scores = {
+                "performance": 30,     # Low - API failure
+                "accessibility": 30,   # Low - API failure
+                "bestPractices": 30,  # Low - API failure
+                "seo": 30,            # Low - API failure
+            }
+        
+        # Generate fallback response structure
+        fallback_result = {
+            "scores": fallback_scores,
+            "coreWebVitals": {
+                "largestContentfulPaint": None,
+                "firstInputDelay": None,
+                "cumulativeLayoutShift": None,
+                "firstContentfulPaint": None,
+                "speedIndex": None,
+            },
+            "serverMetrics": {
+                "serverResponseTime": None,
+                "totalBlockingTime": None,
+                "timeToInteractive": None,
+            },
+            "mobileUsability": {},
+            "opportunities": [],
+            "fallback_reason": {
+                "primary_reason": failure_reasons[0].get("type") if failure_reasons else "UNKNOWN_ERROR",
+                "all_reasons": failure_reasons,
+                "fallback_scores_used": True,
+                "timestamp": time.time()
+            }
+        }
+        
+        log.info(f"✅ Generated fallback scores for {url}: {fallback_scores}")
+        return fallback_result
+
+    def _adjust_scores_for_minimal_content(self, scores: Dict[str, Any], audits: Dict[str, Any], url: str) -> Dict[str, int]:
+        """Adjust scores for minimal content sites to prevent artificially high scores."""
+        try:
+            # Calculate base scores
+            base_scores = {
+                "performance": self._calculate_score(scores.get("performance", {}).get("score", 0)),
+                "accessibility": self._calculate_score(scores.get("accessibility", {}).get("score", 0)),
+                "bestPractices": self._calculate_score(scores.get("best-practices", {}).get("score", 0)),
+                "seo": self._calculate_score(scores.get("seo", {}).get("score", 0)),
+            }
+            
+            # Detect minimal content indicators
+            minimal_content_indicators = []
+            
+            # Check for very small page sizes (likely minimal content)
+            if "total-byte-weight" in audits:
+                total_bytes = audits.get("total-byte-weight", {}).get("numericValue", 0)
+                if total_bytes and total_bytes < 50000:  # Less than 50KB
+                    minimal_content_indicators.append(f"small_page_size({total_bytes} bytes)")
+            
+            # Check for minimal DOM elements
+            if "dom-size" in audits:
+                dom_size = audits.get("dom-size", {}).get("numericValue", 0)
+                if dom_size and dom_size < 100:  # Less than 100 DOM nodes
+                    minimal_content_indicators.append(f"small_dom({dom_size} nodes)")
+            
+            # Check for minimal text content
+            if "document-title" in audits:
+                title = audits.get("document-title", {}).get("details", {}).get("items", [{}])[0].get("title", "")
+                if title and len(title) < 20:  # Very short title
+                    minimal_content_indicators.append(f"short_title({title})")
+            
+            # Check for minimal images
+            if "image-alt" in audits:
+                image_count = len(audits.get("image-alt", {}).get("details", {}).get("items", []))
+                if image_count < 3:  # Very few images
+                    minimal_content_indicators.append(f"few_images({image_count})")
+            
+            # Check for meaningful content length
+            if "document-title" in audits:
+                title_details = audits.get("document-title", {}).get("details", {})
+                if title_details:
+                    # Check if title suggests minimal content (parked domain, etc.)
+                    title_text = title_details.get("items", [{}])[0].get("title", "").lower()
+                    minimal_keywords = ["buy this domain", "domain for sale", "parked", "coming soon", "under construction"]
+                    if any(keyword in title_text for keyword in minimal_keywords):
+                        minimal_content_indicators.append(f"minimal_title_keywords({title_text})")
+            
+            # Check for minimal interactive elements
+            if "button-name" in audits:
+                button_count = len(audits.get("button-name", {}).get("details", {}).get("items", []))
+                if button_count < 2:  # Very few interactive elements
+                    minimal_content_indicators.append(f"few_buttons({button_count})")
+            
+            # Check for minimal links
+            if "link-name" in audits:
+                link_count = len(audits.get("link-name", {}).get("details", {}).get("items", []))
+                if link_count < 5:  # Very few links
+                    minimal_content_indicators.append(f"few_links({link_count})")
+            
+            # Check for minimal form elements
+            if "label" in audits:
+                form_count = len(audits.get("label", {}).get("details", {}).get("items", []))
+                if form_count < 2:  # Very few form elements
+                    minimal_content_indicators.append(f"few_forms({form_count})")
+            
+            # If minimal content is detected, adjust scores
+            if minimal_content_indicators:
+                log.warning(f"🌐 Minimal content detected for {url}: {', '.join(minimal_content_indicators)}")
+                log.warning(f"📊 Adjusting scores to prevent artificially high results")
+                
+                # Calculate adjustment severity based on indicators
+                severity_score = len(minimal_content_indicators)
+                if any("minimal_title_keywords" in indicator for indicator in minimal_content_indicators):
+                    severity_score += 3  # Heavy penalty for parked domains
+                if any("small_page_size" in indicator for indicator in minimal_content_indicators):
+                    severity_score += 2  # Medium penalty for very small pages
+                
+                # Apply adjustment factors for minimal content
+                adjusted_scores = {}
+                for category, score in base_scores.items():
+                    if score > 70:  # Adjust scores above 70
+                        # More aggressive reduction for higher scores
+                        if severity_score >= 5:
+                            reduction_factor = 0.6  # 40% reduction for severe cases
+                        elif severity_score >= 3:
+                            reduction_factor = 0.7  # 30% reduction for moderate cases
+                        else:
+                            reduction_factor = 0.8  # 20% reduction for mild cases
+                        
+                        adjusted_score = round(score * reduction_factor)
+                        adjusted_scores[category] = adjusted_score
+                        log.info(f"📊 {category}: {score} → {adjusted_score} (minimal content adjustment, severity: {severity_score})")
+                    else:
+                        adjusted_scores[category] = score
+                
+                # Add adjustment metadata
+                adjusted_scores["_adjustment_metadata"] = {
+                    "minimal_content_detected": True,
+                    "indicators": minimal_content_indicators,
+                    "severity_score": severity_score,
+                    "adjustment_reason": "Scores adjusted due to minimal content detection"
+                }
+                
+                # Calculate content quality score
+                content_quality_score = self._calculate_content_quality_score(audits, minimal_content_indicators)
+                adjusted_scores["content_quality"] = content_quality_score
+                
+                return adjusted_scores
+            
+            # No adjustment needed, but still calculate content quality
+            base_scores["content_quality"] = self._calculate_content_quality_score(audits, [])
+            return base_scores
+            
+        except Exception as e:
+            log.warning(f"⚠️ Error adjusting scores for minimal content: {e}")
+            # Return base scores if adjustment fails
+            return {
+                "performance": self._calculate_score(scores.get("performance", {}).get("score", 0)),
+                "accessibility": self._calculate_score(scores.get("accessibility", {}).get("score", 0)),
+                "bestPractices": self._calculate_score(scores.get("best-practices", {}).get("score", 0)),
+                "seo": self._calculate_score(scores.get("seo", {}).get("score", 0)),
+                "content_quality": 50,  # Default content quality score
+            }
+
+    def _calculate_content_quality_score(self, audits: Dict[str, Any], minimal_indicators: List[str]) -> int:
+        """Calculate a content quality score based on various content indicators."""
+        try:
+            quality_score = 50  # Base score
+            
+            # Positive indicators
+            if "document-title" in audits:
+                title_details = audits.get("document-title", {}).get("details", {})
+                if title_details:
+                    title_text = title_details.get("items", [{}])[0].get("title", "").lower()
+                    # Check for meaningful content indicators
+                    meaningful_keywords = ["gym", "fitness", "health", "training", "exercise", "workout"]
+                    if any(keyword in title_text for keyword in meaningful_keywords):
+                        quality_score += 20
+            
+            # Check for substantial content
+            if "total-byte-weight" in audits:
+                total_bytes = audits.get("total-byte-weight", {}).get("numericValue", 0)
+                if total_bytes > 100000:  # More than 100KB
+                    quality_score += 15
+                elif total_bytes > 50000:  # More than 50KB
+                    quality_score += 10
+            
+            # Check for interactive elements
+            if "button-name" in audits:
+                button_count = len(audits.get("button-name", {}).get("details", {}).get("items", []))
+                if button_count >= 5:
+                    quality_score += 10
+                elif button_count >= 2:
+                    quality_score += 5
+            
+            # Check for images
+            if "image-alt" in audits:
+                image_count = len(audits.get("image-alt", {}).get("details", {}).get("items", []))
+                if image_count >= 10:
+                    quality_score += 15
+                elif image_count >= 5:
+                    quality_score += 10
+                elif image_count >= 3:
+                    quality_score += 5
+            
+            # Negative indicators (minimal content)
+            if minimal_indicators:
+                quality_score -= len(minimal_indicators) * 5
+                if any("minimal_title_keywords" in indicator for indicator in minimal_indicators):
+                    quality_score -= 20  # Heavy penalty for parked domains
+            
+            # Clamp to 0-100 range
+            quality_score = max(0, min(100, quality_score))
+            
+            log.info(f"📊 Content quality score calculated: {quality_score}")
+            return quality_score
+            
+        except Exception as e:
+            log.warning(f"⚠️ Error calculating content quality score: {e}")
+            return 50  # Default score
+
+    # ------------------------------------------------------------------ #
+    def _calculate_score(self, raw_score) -> int:
+        """Calculate and validate a score from raw PageSpeed data."""
+        try:
+            # Handle None, empty, or invalid values
+            if raw_score is None:
+                return 0
+            
+            # Convert to float and validate range
+            score_float = float(raw_score)
+            if not (0.0 <= score_float <= 1.0):
+                log.warning(f"⚠️ Invalid score value: {raw_score}, expected 0.0-1.0")
+                return 0
+            
+            # Convert to 0-100 scale and round
+            calculated_score = round(score_float * 100)
+            
+            # Validate final result
+            if not (0 <= calculated_score <= 100):
+                log.warning(f"⚠️ Calculated score out of range: {calculated_score}, clamping to valid range")
+                calculated_score = max(0, min(100, calculated_score))
+            
+            return calculated_score
+            
+        except (ValueError, TypeError) as e:
+            log.warning(f"⚠️ Error calculating score from {raw_score}: {e}")
+            return 0
 
     # ------------------------------------------------------------------ #
     def analyze_mobile_usability_from_pagespeed(
@@ -506,6 +896,9 @@ class UnifiedAnalyzer:
             elif (self.service_health["pagespeed"] == "healthy" or 
                   self.service_health["domain_analysis"] == "healthy"):
                 self.service_health["overall"] = "degraded"
+            elif (self.service_health["pagespeed"] == "unknown" and 
+                  self.service_health["domain_analysis"] == "unknown"):
+                self.service_health["overall"] = "unknown"
             else:
                 self.service_health["overall"] = "unhealthy"
         except Exception as e:
@@ -607,7 +1000,7 @@ class UnifiedAnalyzer:
             start_time = time.time()
             
             # Check rate limits
-            can_proceed, message = self.rate_limiter.can_make_request('unified_comprehensive')
+            can_proceed, message = self.rate_limiter.can_make_request('comprehensive_speed')
             if not can_proceed:
                 return {
                     "success": False,
@@ -682,13 +1075,13 @@ class UnifiedAnalyzer:
             result["analysis_time"] = analysis_time
             
             # Record successful request
-            self.rate_limiter.record_request('unified_comprehensive', True)
+            self.rate_limiter.record_request('comprehensive_speed', True)
             
             return result
             
         except Exception as e:
             # Record failed request
-            self.rate_limiter.record_request('unified_comprehensive', False)
+            self.rate_limiter.record_request('comprehensive_speed', False)
             
             log.error(f"Comprehensive analysis failed for {url}: {e}")
             return {
@@ -746,8 +1139,8 @@ class UnifiedAnalyzer:
                 "domain_analysis": self.service_health["domain_analysis"]
             },
             "rate_limits": {
-                "unified_analyzer": getattr(self.api_config, 'VALIDATION_RATE_LIMIT_PER_MINUTE', 120),
-                "unified_comprehensive": getattr(self.api_config, 'COMPREHENSIVE_ANALYSIS_RATE_LIMIT_PER_MINUTE', 30)
+                "google_pagespeed": getattr(self.api_config, 'PAGESPEED_RATE_LIMIT_PER_MINUTE', 240),
+                "comprehensive_speed": getattr(self.api_config, 'COMPREHENSIVE_SPEED_RATE_LIMIT_PER_MINUTE', 30)
             },
             "features": {
                 "caching": True,

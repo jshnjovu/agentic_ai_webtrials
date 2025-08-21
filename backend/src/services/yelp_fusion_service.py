@@ -11,7 +11,7 @@ from src.core import BaseService, get_api_config
 from src.services import RateLimiter
 from src.schemas.yelp_fusion import (
     YelpBusinessSearchRequest, YelpBusinessData, YelpBusinessSearchResponse, 
-    YelpBusinessSearchError, YelpLocationType, YelpBusinessHours, YelpBusinessCategory,
+    YelpBusinessSearchError, YelpBusinessHours, YelpBusinessCategory,
     YelpBusinessCoordinates, YelpBusinessLocation
 )
 
@@ -58,23 +58,16 @@ class YelpFusionService(BaseService):
                     run_id=request.run_id
                 )
             
-            # Validate and process location
-            location_info = self._process_location(request.location, request.location_type)
-            if not location_info["valid"]:
-                return YelpBusinessSearchError(
-                    error=f"Invalid location: {location_info['error']}",
-                    context="location_validation",
-                    term=request.term,
-                    location=request.location,
-                    run_id=request.run_id
-                )
-            
             # Build search parameters
-            search_params = self._build_search_params(request, location_info)
+            search_params = self._build_search_params(request)
             
             # Execute search
             search_result = self._execute_search(search_params, request.run_id)
             if not search_result["success"]:
+                self.log_operation(
+                    f"Search execution failed: {search_result['error']}",
+                    run_id=request.run_id
+                )
                 return YelpBusinessSearchError(
                     error=search_result["error"],
                     error_code=search_result.get("error_code"),
@@ -85,11 +78,24 @@ class YelpFusionService(BaseService):
                     details=search_result.get("details")
                 )
             
+            # Log raw results for debugging
+            raw_businesses = search_result["results"]
+            self.log_operation(
+                f"Raw search returned {len(raw_businesses)} businesses from API",
+                run_id=request.run_id
+            )
+            
             # Process and limit results
             businesses = self._process_business_results(
-                search_result["results"], 
+                raw_businesses, 
                 request.limit,
                 request.run_id
+            )
+            
+            # Log processing results
+            self.log_operation(
+                f"Processing complete: {len(businesses)} businesses processed from {len(raw_businesses)} raw results",
+                run_id=request.run_id
             )
             
             # Build response
@@ -126,71 +132,24 @@ class YelpFusionService(BaseService):
                 run_id=request.run_id
             )
     
-    def _process_location(self, location: str, location_type: YelpLocationType) -> Dict[str, Any]:
-        """
-        Process and validate location input for Yelp Fusion API.
-        
-        Args:
-            location: Location string to process
-            location_type: Type of location input
-            
-        Returns:
-            Dictionary with validation result and processed location
-        """
-        try:
-            if not location or not location.strip():
-                return {"valid": False, "error": "Location cannot be empty"}
-            
-            location = location.strip()
-            
-            if location_type == YelpLocationType.COORDINATES:
-                # Validate coordinate format (lat,lng)
-                coord_pattern = r'^-?\d+\.?\d*,-?\d+\.?\d*$'
-                if not re.match(coord_pattern, location):
-                    return {"valid": False, "error": "Invalid coordinate format. Use 'lat,lng'"}
-                
-                return {"valid": True, "processed_location": location, "type": "coordinates"}
-            
-            elif location_type == YelpLocationType.ZIP_CODE:
-                # Validate ZIP code format
-                zip_pattern = r'^\d{5}(-\d{4})?$'
-                if not re.match(zip_pattern, location):
-                    return {"valid": False, "error": "Invalid ZIP code format"}
-                
-                return {"valid": True, "processed_location": location, "type": "zip_code"}
-            
-            else:
-                # City or address - just validate it's not empty
-                return {"valid": True, "processed_location": location, "type": "text"}
-                
-        except Exception as e:
-            return {"valid": False, "error": f"Location processing error: {str(e)}"}
-    
-    def _build_search_params(self, request: YelpBusinessSearchRequest, location_info: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_search_params(self, request: YelpBusinessSearchRequest) -> Dict[str, Any]:
         """
         Build search parameters for Yelp Fusion API.
         
         Args:
             request: Search request object
-            location_info: Processed location information
             
         Returns:
             Dictionary of API parameters
         """
         params = {
             "term": request.term,
-            "location": location_info["processed_location"],
+            "location": request.location,
             "limit": min(request.limit, self.max_results_per_request),
             "offset": request.offset
         }
         
         # Add optional parameters if provided
-        if request.radius is not None:
-            params["radius"] = request.radius
-        
-        if request.categories:
-            params["categories"] = ",".join(request.categories)
-        
         if request.sort_by is not None:
             params["sort_by"] = request.sort_by
         
@@ -234,15 +193,29 @@ class YelpFusionService(BaseService):
                 if response.status_code == 200:
                     result = response.json()
                     
+                    # Log the raw API response structure for debugging
+                    self.log_operation(
+                        f"API response keys: {list(result.keys())}",
+                        run_id=run_id
+                    )
+                    
                     # Extract businesses and total count
                     businesses = result.get("businesses", [])
                     total = result.get("total", 0)
                     region = result.get("region", {})
                     
                     self.log_operation(
-                        f"Yelp Fusion API search successful: {len(businesses)} businesses found",
+                        f"Yelp Fusion API search successful: {len(businesses)} businesses found, total: {total}",
                         run_id=run_id
                     )
+                    
+                    # Log sample business data structure if available
+                    if businesses and len(businesses) > 0:
+                        sample_business = businesses[0]
+                        self.log_operation(
+                            f"Sample business keys: {list(sample_business.keys())}",
+                            run_id=run_id
+                        )
                     
                     return {
                         "success": True,
@@ -310,12 +283,33 @@ class YelpFusionService(BaseService):
             
             for i, raw_business in enumerate(raw_businesses[:max_results]):
                 try:
-                    # Validate required fields
-                    if not isinstance(raw_business.get("id"), str) or not raw_business.get("id"):
+                    # Validate required fields with better error logging
+                    business_id = raw_business.get("id")
+                    business_name = raw_business.get("name")
+                    business_url = raw_business.get("url")
+                    
+                    if not isinstance(business_id, str) or not business_id:
+                        self.log_operation(
+                            f"Skipping business {i}: missing or invalid ID",
+                            run_id=run_id,
+                            business_id=f"index_{i}"
+                        )
                         continue
-                    if not isinstance(raw_business.get("name"), str) or not raw_business.get("name"):
+                        
+                    if not isinstance(business_name, str) or not business_name:
+                        self.log_operation(
+                            f"Skipping business {business_id}: missing or invalid name",
+                            run_id=run_id,
+                            business_id=business_id
+                        )
                         continue
-                    if not isinstance(raw_business.get("url"), str) or not raw_business.get("url"):
+                        
+                    if not isinstance(business_url, str) or not business_url:
+                        self.log_operation(
+                            f"Skipping business {business_id}: missing or invalid URL",
+                            run_id=run_id,
+                            business_id=business_id
+                        )
                         continue
                     
                     # Extract business hours
@@ -324,7 +318,7 @@ class YelpFusionService(BaseService):
                     # Extract categories
                     categories = self._extract_categories(raw_business.get("categories", []))
                     
-                    # Extract coordinates
+                    # Extract coordinates with validation
                     coordinates = self._extract_coordinates(raw_business.get("coordinates", {}))
                     
                     # Extract location
@@ -341,12 +335,12 @@ class YelpFusionService(BaseService):
                     
                     # Create business data object
                     business_data = YelpBusinessData(
-                        id=raw_business.get("id", ""),
+                        id=business_id,
                         alias=raw_business.get("alias", ""),
-                        name=raw_business.get("name", ""),
+                        name=business_name,
                         image_url=raw_business.get("image_url"),
                         is_closed=raw_business.get("is_closed", True),
-                        url=raw_business.get("url", ""),
+                        url=business_url,
                         review_count=raw_business.get("review_count", 0),
                         categories=categories,
                         rating=raw_business.get("rating", 0.0),
@@ -367,6 +361,12 @@ class YelpFusionService(BaseService):
                     
                     processed_businesses.append(business_data)
                     
+                    self.log_operation(
+                        f"Successfully processed business: {business_name} ({business_id})",
+                        run_id=run_id,
+                        business_id=business_id
+                    )
+                    
                 except Exception as e:
                     self.log_error(
                         e, 
@@ -378,7 +378,7 @@ class YelpFusionService(BaseService):
                     continue
             
             self.log_operation(
-                f"Processed {len(processed_businesses)} business results",
+                f"Processed {len(processed_businesses)} business results out of {len(raw_businesses)} raw results",
                 run_id=run_id
             )
             
@@ -437,11 +437,24 @@ class YelpFusionService(BaseService):
     def _extract_coordinates(self, raw_coordinates: Dict[str, Any]) -> YelpBusinessCoordinates:
         """Extract and validate business coordinates from raw API data."""
         try:
+            latitude = raw_coordinates.get("latitude")
+            longitude = raw_coordinates.get("longitude")
+            
+            # Validate that coordinates are numeric and within valid ranges
+            if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
+                # Return default coordinates if validation fails
+                return YelpBusinessCoordinates(latitude=0.0, longitude=0.0)
+            
+            # Validate coordinate ranges (latitude: -90 to 90, longitude: -180 to 180)
+            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+                # Return default coordinates if out of range
+                return YelpBusinessCoordinates(latitude=0.0, longitude=0.0)
+            
             return YelpBusinessCoordinates(
-                latitude=raw_coordinates.get("latitude", 0.0),
-                longitude=raw_coordinates.get("longitude", 0.0)
+                latitude=float(latitude),
+                longitude=float(longitude)
             )
-        except Exception:
+        except Exception as e:
             # Return default coordinates if extraction fails
             return YelpBusinessCoordinates(latitude=0.0, longitude=0.0)
     

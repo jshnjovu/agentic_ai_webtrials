@@ -127,7 +127,7 @@ class PageSpeedAuditRequest(BaseModel):
     website_url: str = Field(..., description="Website URL to analyze")
     business_id: str = Field(..., description="Business identifier")
     run_id: str = Field(..., description="Run identifier")
-    strategy: AuditStrategy = Field(AuditStrategy.DESKTOP, description="Analysis strategy")
+    strategy: AuditStrategy = Field(AuditStrategy.MOBILE, description="Analysis strategy")
     categories: Optional[List[str]] = Field(
         default=["performance", "accessibility", "best-practices", "seo"],
         description="Lighthouse categories to analyze"
@@ -145,11 +145,11 @@ class PageSpeedAuditRequest(BaseModel):
 class CoreWebVitals(BaseModel):
     """Core Web Vitals metrics from PageSpeed audit."""
     
-    first_contentful_paint: float = Field(..., description="First Contentful Paint in milliseconds")
-    largest_contentful_paint: float = Field(..., description="Largest Contentful Paint in milliseconds")
-    cumulative_layout_shift: float = Field(..., description="Cumulative Layout Shift score")
-    total_blocking_time: float = Field(..., description="Total Blocking Time in milliseconds")
-    speed_index: float = Field(..., description="Speed Index in milliseconds")
+    first_contentful_paint: Optional[float] = Field(None, description="First Contentful Paint in milliseconds")
+    largest_contentful_paint: Optional[float] = Field(None, description="Largest Contentful Paint in milliseconds")
+    cumulative_layout_shift: Optional[float] = Field(None, description="Cumulative Layout Shift score")
+    total_blocking_time: Optional[float] = Field(None, description="Total Blocking Time in milliseconds")
+    speed_index: Optional[float] = Field(None, description="Speed Index in milliseconds")
 
 
 class PageSpeedAuditResponse(BaseModel):
@@ -235,23 +235,13 @@ class HeuristicEvaluationError(BaseModel):
     confidence: ConfidenceLevel = Field(ConfidenceLevel.LOW, description="Low confidence due to error")
 
 
-class CoreWebVitals(BaseModel):
-    """Core Web Vitals metrics from Lighthouse audit."""
-    
-    first_contentful_paint: Optional[float] = Field(None, description="First Contentful Paint in milliseconds")
-    largest_contentful_paint: Optional[float] = Field(None, description="Largest Contentful Paint in milliseconds")
-    cumulative_layout_shift: Optional[float] = Field(None, description="Cumulative Layout Shift score")
-    total_blocking_time: Optional[float] = Field(None, description="Total Blocking Time in milliseconds")
-    speed_index: Optional[float] = Field(None, description="Speed Index in milliseconds")
-
-
 class LighthouseAuditRequest(BaseModel):
     """Request model for Lighthouse audit."""
     
     website_url: HttpUrl = Field(..., description="URL of the website to audit")
     business_id: str = Field(..., description="Business identifier for tracking")
     run_id: Optional[str] = Field(None, description="Run identifier for tracking")
-    strategy: AuditStrategy = Field(AuditStrategy.DESKTOP, description="Audit strategy (desktop/mobile)")
+    strategy: AuditStrategy = Field(AuditStrategy.MOBILE, description="Audit strategy (desktop/mobile)")
     audit_parameters: Optional[Dict[str, Any]] = Field(None, description="Additional audit parameters")
     
     @field_validator('website_url')

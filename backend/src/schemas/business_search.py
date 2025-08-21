@@ -19,19 +19,8 @@ class BusinessSearchRequest(BaseModel):
     """Request model for business search."""
     
     query: str = Field(..., description="Search query for businesses", min_length=1, max_length=200)
-    location: str = Field(..., description="Location to search in (city, address, coordinates, or zip code)")
-    location_type: LocationType = Field(default=LocationType.CITY, description="Type of location input")
-    category: Optional[str] = Field(None, description="Business category or type to filter by", max_length=100)
-    radius: Optional[int] = Field(default=5000, description="Search radius in meters (max 50000)", ge=100, le=50000)
     max_results: Optional[int] = Field(default=4, description="Maximum number of results to return", ge=1, le=20)
     run_id: Optional[str] = Field(None, description="Unique identifier for the processing run")
-    
-    @field_validator('radius')
-    @classmethod
-    def validate_radius(cls, v):
-        if v is not None and (v < 100 or v > 50000):
-            raise ValueError('Radius must be between 100 and 50000 meters')
-        return v
     
     @field_validator('max_results')
     @classmethod
@@ -67,7 +56,6 @@ class BusinessSearchResponse(BaseModel):
     
     success: bool = Field(..., description="Whether the search was successful")
     query: str = Field(..., description="Original search query")
-    location: str = Field(..., description="Location that was searched")
     total_results: int = Field(..., description="Total number of results found", ge=0)
     results: List[BusinessData] = Field(..., description="List of business results")
     next_page_token: Optional[str] = Field(None, description="Token for next page of results")

@@ -19,7 +19,7 @@ class YelpFusionAuthService(BaseService):
         self.base_url = "https://api.yelp.com/v3"
         self.api_key = self.api_config.YELP_FUSION_API_KEY
     
-    def validate_input(self, data: any) -> bool:
+    def validate_input(self, data: Any) -> bool:
         """Validate input data for the service."""
         return isinstance(data, dict) and "run_id" in data
     
@@ -45,15 +45,16 @@ class YelpFusionAuthService(BaseService):
                     run_id
                 )
             
-            # Test connection with a simple API call
+            # Test connection with a realistic API call
             test_url = f"{self.base_url}/businesses/search"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"
             }
             params = {
-                "term": "test",
-                "location": "test"
+                "term": "restaurant",
+                "location": "San Francisco, CA",
+                "limit": 1
             }
             
             with httpx.Client(timeout=self.api_config.API_TIMEOUT_SECONDS) as client:
@@ -142,15 +143,16 @@ class YelpFusionAuthService(BaseService):
                     run_id
                 )
             
-            # Simple connection test
+            # Simple connection test with realistic parameters
             test_url = f"{self.base_url}/businesses/search"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"
             }
             params = {
-                "term": "test",
-                "location": "test"
+                "term": "coffee",
+                "location": "New York, NY",
+                "limit": 1
             }
             
             with httpx.Client(timeout=self.api_config.API_TIMEOUT_SECONDS) as client:

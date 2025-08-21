@@ -73,6 +73,14 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
       throw new Error(data.error || 'PageSpeed audit failed');
     }
 
+    // Debug: Log the actual response structure
+    console.log('🔍 Backend PageSpeed response:', {
+      success: data.success,
+      scores: data.scores,
+      core_web_vitals: data.core_web_vitals,
+      raw_data: data
+    });
+
     // Convert backend response to frontend format
     const result: PageSpeedResult = {
       success: true,
@@ -82,8 +90,8 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
         accessibility: Math.round(data.scores.accessibility || 0),
         bestPractices: Math.round(data.scores.best_practices || 0), // Note: backend uses snake_case
         seo: Math.round(data.scores.seo || 0),
-        trust: Math.round(data.scores.trust || 0), // Trust score from backend
-        cro: Math.round(data.scores.cro || 0),     // CRO score from backend
+        trust: 0, // PageSpeed doesn't provide trust score
+        cro: 0,   // PageSpeed doesn't provide CRO score
       },
       coreWebVitals: {
         firstContentfulPaint: data.core_web_vitals?.first_contentful_paint || null,
@@ -102,10 +110,46 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
   } catch (error) {
     console.error('❌ PageSpeed audit failed:', error);
 
-    // If fallback is enabled and PageSpeed fails, try heuristic fallback
+    // Enhanced error logging
+    const errorDetails = {
+      websiteUrl: request.websiteUrl,
+      businessId: request.businessId,
+      runId: request.runId,
+      strategy: request.strategy,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+      backendUrl: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000'
+    };
+    
+    console.error('🔍 Detailed error context:', errorDetails);
+
+    // If fallback is enabled and PageSpeed fails, return simplified fallback
     if (request.enableFallback) {
-      console.log('🔄 PageSpeed failed, trying heuristic fallback...');
-      return await runHeuristicFallback(request);
+      console.log('🔄 PageSpeed failed, using simplified fallback scoring...');
+      
+      // Return simplified fallback scores based on basic heuristics
+      return {
+        success: true,
+        overallScore: 50, // Neutral fallback score
+        scores: {
+          performance: 50,
+          accessibility: 50,
+          bestPractices: 50,
+          seo: 50,
+          trust: 50,
+          cro: 50,
+        },
+        coreWebVitals: {
+          firstContentfulPaint: null,
+          largestContentfulPaint: null,
+          cumulativeLayoutShift: null,
+          totalBlockingTime: null,
+          speedIndex: null,
+        },
+        fallbackUsed: true,
+        confidence: 'low',
+        error: `PageSpeed API failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using fallback scores.`
+      };
     }
 
     // Return error result
@@ -128,91 +172,6 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
       fallbackUsed: false,
       confidence: 'low',
       error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
-}
-
-/**
- * Heuristic fallback scoring when PageSpeed fails
- */
-async function runHeuristicFallback(request: PageSpeedRequest): Promise<PageSpeedResult> {
-  try {
-    console.log('🔍 Running heuristic fallback for:', request.websiteUrl);
-
-    // Get backend URL from environment or use default
-    const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
-
-    // Call the backend heuristic evaluation API directly
-    const response = await fetch(`${BACKEND_URL}/api/v1/website-scoring/heuristic`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        website_url: request.websiteUrl,
-        business_id: request.businessId,
-        run_id: request.runId,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Heuristic API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.success) {
-      throw new Error(data.error || 'Heuristic evaluation failed');
-    }
-
-    // Convert heuristic scores to PageSpeed format
-    const result: PageSpeedResult = {
-      success: true,
-      overallScore: Math.round(data.scores.overall_heuristic_score || 0),
-      scores: {
-        performance: Math.round(data.scores.trust_score || 0), // Use trust score as performance proxy
-        accessibility: Math.round(data.scores.mobile_score || 0), // Use mobile score as accessibility proxy
-        bestPractices: Math.round(data.scores.cro_score || 0), // Use CRO score as best practices proxy
-        seo: Math.round(data.scores.content_score || 0), // Use content score as SEO proxy
-        trust: Math.round(data.scores.trust_score || 0), // Trust score directly from heuristic
-        cro: Math.round(data.scores.cro_score || 0),     // CRO score directly from heuristic
-      },
-      coreWebVitals: {
-        firstContentfulPaint: null, // Not available in heuristic
-        largestContentfulPaint: null,
-        cumulativeLayoutShift: null,
-        totalBlockingTime: null,
-        speedIndex: null,
-      },
-      fallbackUsed: true,
-      confidence: data.confidence || 'medium',
-    };
-
-    console.log('✅ Heuristic fallback completed:', result);
-    return result;
-
-  } catch (error) {
-    console.error('❌ Heuristic fallback failed:', error);
-
-    // Return dummy scores as last resort
-    return {
-      success: true,
-      overallScore: 50, // Dummy score
-      scores: {
-        performance: 50,
-        accessibility: 50,
-        bestPractices: 50,
-        seo: 50,
-      },
-      coreWebVitals: {
-        firstContentfulPaint: null,
-        largestContentfulPaint: null,
-        cumulativeLayoutShift: null,
-        totalBlockingTime: null,
-        speedIndex: null,
-      },
-      fallbackUsed: true,
-      confidence: 'low',
     };
   }
 }

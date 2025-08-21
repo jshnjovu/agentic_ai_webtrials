@@ -46,7 +46,7 @@ export default async function handler(
           websiteUrl: business.website,
           businessId: business.place_id,
           runId: `score_${Date.now()}_${business.place_id}`,
-          strategy: "desktop" as const, // Default to desktop strategy
+          strategy: "mobile" as const, // Default to mobile strategy
           enableFallback: true // Enable heuristic fallback when PageSpeed fails
         };
 

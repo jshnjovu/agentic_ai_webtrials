@@ -21,8 +21,7 @@ from .yelp_fusion import (
     YelpBusinessSearchRequest,
     YelpBusinessSearchResponse,
     YelpBusinessSearchError,
-    YelpBusinessData,
-    YelpLocationType
+    YelpBusinessData
 )
 
 from .business_matching import (
@@ -101,7 +100,6 @@ __all__ = [
     'YelpBusinessSearchResponse',
     'YelpBusinessSearchError',
     'YelpBusinessData',
-    'YelpLocationType',
     # Business matching schemas
     'ConfidenceLevel',
     'BusinessLocation',

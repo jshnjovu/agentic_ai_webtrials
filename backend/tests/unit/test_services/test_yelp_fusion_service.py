@@ -8,7 +8,7 @@ from typing import Dict, Any
 from src.services import YelpFusionService
 from src.schemas.yelp_fusion import (
     YelpBusinessSearchRequest, YelpBusinessData, YelpBusinessSearchResponse, 
-    YelpBusinessSearchError, YelpLocationType, YelpBusinessHours, YelpBusinessCategory,
+    YelpBusinessSearchError, YelpBusinessHours, YelpBusinessCategory,
     YelpBusinessCoordinates, YelpBusinessLocation
 )
 
@@ -80,9 +80,6 @@ class TestYelpFusionService:
         return YelpBusinessSearchRequest(
             term="restaurant",
             location="San Francisco",
-            location_type=YelpLocationType.CITY,
-            categories=["restaurants", "food"],
-            radius=40000,
             limit=20,
             offset=0,
             sort_by="best_match",
@@ -101,56 +98,14 @@ class TestYelpFusionService:
         assert service.validate_input(None) is False
         assert service.validate_input({}) is False
     
-    def test_process_location_city(self, service):
-        """Test location processing for city input."""
-        result = service._process_location("San Francisco", YelpLocationType.CITY)
-        assert result["valid"] is True
-        assert result["processed_location"] == "San Francisco"
-        assert result["type"] == "text"
-    
-    def test_process_location_coordinates_valid(self, service):
-        """Test location processing for valid coordinates."""
-        result = service._process_location("37.7749,-122.4194", YelpLocationType.COORDINATES)
-        assert result["valid"] is True
-        assert result["processed_location"] == "37.7749,-122.4194"
-        assert result["type"] == "coordinates"
-    
-    def test_process_location_coordinates_invalid(self, service):
-        """Test location processing for invalid coordinates."""
-        result = service._process_location("invalid_coords", YelpLocationType.COORDINATES)
-        assert result["valid"] is False
-        assert "Invalid coordinate format" in result["error"]
-    
-    def test_process_location_zip_code_valid(self, service):
-        """Test location processing for valid ZIP code."""
-        result = service._process_location("94102", YelpLocationType.ZIP_CODE)
-        assert result["valid"] is True
-        assert result["processed_location"] == "94102"
-        assert result["type"] == "zip_code"
-    
-    def test_process_location_zip_code_invalid(self, service):
-        """Test location processing for invalid ZIP code."""
-        result = service._process_location("invalid_zip", YelpLocationType.ZIP_CODE)
-        assert result["valid"] is False
-        assert "Invalid ZIP code format" in result["error"]
-    
-    def test_process_location_empty(self, service):
-        """Test location processing for empty input."""
-        result = service._process_location("", YelpLocationType.CITY)
-        assert result["valid"] is False
-        assert "Location cannot be empty" in result["error"]
-    
     def test_build_search_params(self, service, sample_search_request):
         """Test building search parameters."""
-        location_info = {"valid": True, "processed_location": "San Francisco", "type": "text"}
-        params = service._build_search_params(sample_search_request, location_info)
+        params = service._build_search_params(sample_search_request)
         
         assert params["term"] == "restaurant"
         assert params["location"] == "San Francisco"
         assert params["limit"] == 20
         assert params["offset"] == 0
-        assert params["radius"] == 40000
-        assert params["categories"] == "restaurants,food"
         assert params["sort_by"] == "best_match"
         assert params["price"] == "$$"
         assert params["open_now"] is True
@@ -161,14 +116,12 @@ class TestYelpFusionService:
             term="restaurant",
             location="San Francisco"
         )
-        location_info = {"valid": True, "processed_location": "San Francisco", "type": "text"}
-        params = service._build_search_params(request, location_info)
+        params = service._build_search_params(request)
         
         assert params["term"] == "restaurant"
         assert params["location"] == "San Francisco"
         assert params["limit"] == 20  # default
         assert params["offset"] == 0  # default
-        assert params["radius"] == 40000  # radius has default value and is included
         assert "categories" not in params
     
     @patch('src.services.yelp_fusion_service.httpx.Client')
@@ -600,8 +553,8 @@ class TestYelpFusionService:
         service.rate_limiter.can_make_request.return_value = (True, None)
         
         # Set invalid location type
-        sample_search_request.location_type = YelpLocationType.COORDINATES
-        sample_search_request.location = "invalid_coords"
+        # sample_search_request.location_type = YelpLocationType.COORDINATES
+        # sample_search_request.location = "invalid_coords"
         
         result = service.search_businesses(sample_search_request)
         

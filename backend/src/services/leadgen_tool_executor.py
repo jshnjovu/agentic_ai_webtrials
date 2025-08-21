@@ -340,8 +340,8 @@ class LeadGenToolExecutor:
                         
                         # Run unified analysis using UnifiedAnalyzer for comprehensive scoring
                         unified_result = await self.unified_analyzer.run_comprehensive_analysis(
-                            business["website"],
-                            strategy="desktop"
+                            url=business["website"],
+                            strategy="mobile"
                         )
                         
                         if unified_result.get("success"):

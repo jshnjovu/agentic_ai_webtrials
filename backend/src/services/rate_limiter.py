@@ -118,7 +118,7 @@ class RateLimiter(BaseService):
             return False, f"Rate limit exceeded: {len(rl['requests'])}/{rl['limit']}"
         return True, "OK"
 
-    def record_request(self, api: str, success: bool, run_id: Optional[str] = None):
+    def record_request(self, api: str, success: bool, run_id: Optional[str] = None, failure_type: Optional[str] = None):
         if api not in self._rate_limits:
             return
         now = time.time()
@@ -126,7 +126,13 @@ class RateLimiter(BaseService):
         if success:
             self._record_success(api)
         else:
-            self._record_failure(api, now)
+            # Don't count legitimate site downtime as API failures
+            if failure_type == "SITE_UNRESPONSIVE":
+                self.log_operation(f"Site unresponsive - not counting as API failure for {api}", run_id=run_id)
+            elif failure_type == "NETWORK_ERROR":
+                self.log_operation(f"Network error - not counting as API failure for {api}", run_id=run_id)
+            else:
+                self._record_failure(api, now)
         self.log_operation(
             f"Recorded {'successful' if success else 'failed'} request to {api}",
             run_id=run_id,
@@ -183,3 +189,20 @@ class RateLimiter(BaseService):
                 "last_failure": None,
             })
             self.log_operation(f"Manually reset circuit breaker for {api}", run_id=run_id)
+
+    def reset_circuit_breaker_if_site_issues(self, api: str, run_id: Optional[str] = None):
+        """Reset circuit breaker if it was opened due to site unresponsiveness rather than API failures."""
+        if api in self._circuit_breakers:
+            cb = self._circuit_breakers[api]
+            # Only reset if the circuit breaker is open and we have recent failures
+            if cb["state"] == "OPEN" and cb["last_failure"]:
+                # Check if the last failure was recent (within last 5 minutes)
+                if time.time() - cb["last_failure"] < 300:  # 5 minutes
+                    cb.update({
+                        "state": "CLOSED",
+                        "failures": 0,
+                        "last_failure": None,
+                    })
+                    self.log_operation(f"Reset circuit breaker for {api} due to site issues", run_id=run_id)
+                    return True
+        return False

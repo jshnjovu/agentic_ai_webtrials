@@ -26,7 +26,7 @@ class WebsiteScore(Base):
     
     # Website information
     website_url = Column(String(500), nullable=False, index=True)
-    audit_strategy = Column(String(50), nullable=False, default="desktop")
+    audit_strategy = Column(String(50), nullable=False, default="mobile")
     
     # Performance scores (0-100 scale)
     performance_score = Column(Float, nullable=False)
@@ -87,7 +87,7 @@ class WebsiteScore(Base):
             business_id=data.get('business_id'),
             run_id=data.get('run_id'),
             website_url=data.get('website_url'),
-            audit_strategy=data.get('strategy', 'desktop'),
+            audit_strategy=data.get('strategy', 'mobile'),
             performance_score=data.get('scores', {}).get('performance', 0.0),
             accessibility_score=data.get('scores', {}).get('accessibility', 0.0),
             best_practices_score=data.get('scores', {}).get('best_practices', 0.0),
@@ -318,7 +318,7 @@ class LighthouseAuditResult(Base):
     
     # Website information
     website_url = Column(String(500), nullable=False, index=True)
-    audit_strategy = Column(String(50), nullable=False, default="desktop")
+    audit_strategy = Column(String(50), nullable=False, default="mobile")
     
     # Audit results
     success = Column(String(10), nullable=False, default="false")  # 'true' or 'false'
@@ -370,7 +370,7 @@ class LighthouseAuditResult(Base):
             business_id=data.get('business_id'),
             run_id=data.get('run_id'),
             website_url=data.get('website_url'),
-            audit_strategy=data.get('strategy', 'desktop'),
+            audit_strategy=data.get('strategy', 'mobile'),
             success=str(data.get('success', False)).lower(),
             confidence_level=data.get('confidence', 'low'),
             raw_audit_data=data.get('raw_data'),

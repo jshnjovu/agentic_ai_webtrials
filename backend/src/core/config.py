@@ -35,9 +35,19 @@ def load_environment_files() -> None:
     for env_file in env_files:
         if env_file.exists():
             try:
-                load_dotenv(env_file, override=False)  # Don't override already set variables
+                # Use override=True to ensure variables are loaded
+                load_dotenv(env_file, override=True)
                 loaded_files.append(str(env_file))
                 logger.info(f"Loaded environment file: {env_file}")
+                
+                # Verify key variables are loaded
+                if env_file.name == ".env":
+                    google_key = os.getenv('GOOGLE_GENERAL_API_KEY')
+                    if google_key:
+                        logger.info(f"✅ GOOGLE_GENERAL_API_KEY loaded: {google_key[:10]}...")
+                    else:
+                        logger.warning("⚠️ GOOGLE_GENERAL_API_KEY not found in .env file")
+                        
             except Exception as e:
                 logger.warning(f"Failed to load {env_file}: {e}")
     
@@ -45,6 +55,10 @@ def load_environment_files() -> None:
         logger.warning("No environment files found. Using system environment variables only.")
     else:
         logger.info(f"Loaded environment from: {', '.join(loaded_files)}")
+    
+    # Log current environment state for debugging
+    google_key = os.getenv('GOOGLE_GENERAL_API_KEY')
+    logger.info(f"Environment state - GOOGLE_GENERAL_API_KEY: {'SET' if google_key else 'NOT_SET'}")
 
 
 # Load environment files on module import
@@ -87,6 +101,7 @@ class APIConfig(BaseSettings):
     COMPREHENSIVE_SPEED_RATE_LIMIT_PER_MINUTE: int = 30
     VALIDATION_RATE_LIMIT_PER_MINUTE: int = 120
     FALLBACK_RATE_LIMIT_PER_MINUTE: int = 60
+    HEURISTICS_RATE_LIMIT_PER_MINUTE: int = 120
     
     # API Timeout Settings
     API_TIMEOUT_SECONDS: int = 30
@@ -95,10 +110,21 @@ class APIConfig(BaseSettings):
     PAGESPEED_READ_TIMEOUT_SECONDS: int = 45
     PAGESPEED_FALLBACK_TIMEOUT_SECONDS: int = 15
     COMPREHENSIVE_ANALYSIS_TIMEOUT_SECONDS: int = 60
+    HEURISTICS_EVALUATION_TIMEOUT_SECONDS: int = 30
     
     # Circuit Breaker Configuration
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
     CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 60
+    
+    # Add model configuration to load environment variables
+    model_config = ConfigDict(
+        env_file = [".env.local", ".env", ".env.example"],
+        env_file_encoding = "utf-8",
+        case_sensitive = True,
+        extra = "ignore",
+        validate_default = True,
+        use_enum_values = True
+    )
     
     @field_validator('GOOGLE_PLACES_API_KEY')
     @classmethod
@@ -207,15 +233,6 @@ class APIConfig(BaseSettings):
             raise ValueError('PAGESPEED_RATE_LIMIT_PER_MINUTE must be positive')
         return v
     
-    model_config = ConfigDict(
-        env_file = [".env.local", ".env", ".env.example"],
-        env_file_encoding = "utf-8",
-        case_sensitive = True,
-        extra = "ignore",
-        validate_default = True,
-        use_enum_values = True
-    )
-    
     def is_api_key_valid(self, key_name: str) -> bool:
         """Check if an API key is valid (not None, not empty, not placeholder)."""
         key_value = getattr(self, key_name, None)
@@ -255,6 +272,26 @@ class APIConfig(BaseSettings):
             available.append('whois')
             
         return available
+    
+    def debug_environment_state(self) -> dict:
+        """Debug method to show current environment variable state."""
+        return {
+            "raw_environment": {
+                "GOOGLE_GENERAL_API_KEY": os.getenv('GOOGLE_GENERAL_API_KEY'),
+                "GOOGLE_PLACES_API_KEY": os.getenv('GOOGLE_PLACES_API_KEY'),
+                "YELP_FUSION_API_KEY": os.getenv('YELP_FUSION_API_KEY'),
+            },
+            "config_values": {
+                "GOOGLE_GENERAL_API_KEY": self.GOOGLE_GENERAL_API_KEY,
+                "GOOGLE_PLACES_API_KEY": self.GOOGLE_PLACES_API_KEY,
+                "YELP_FUSION_API_KEY": self.YELP_FUSION_API_KEY,
+            },
+            "validation_results": {
+                "GOOGLE_GENERAL_API_KEY": self.is_api_key_valid('GOOGLE_GENERAL_API_KEY'),
+                "GOOGLE_PLACES_API_KEY": self.is_api_key_valid('GOOGLE_PLACES_API_KEY'),
+                "YELP_FUSION_API_KEY": self.is_api_key_valid('YELP_FUSION_API_KEY'),
+            }
+        }
 
 
 class Settings(BaseSettings):

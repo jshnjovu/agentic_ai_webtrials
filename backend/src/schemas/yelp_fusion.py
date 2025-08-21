@@ -4,15 +4,6 @@ Yelp Fusion API schemas for business search integration.
 
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
-from enum import Enum
-
-
-class YelpLocationType(str, Enum):
-    """Types of location input for Yelp business search."""
-    CITY = "city"
-    COORDINATES = "coordinates"
-    ADDRESS = "address"
-    ZIP_CODE = "zip_code"
 
 
 class YelpBusinessSearchRequest(BaseModel):
@@ -20,22 +11,12 @@ class YelpBusinessSearchRequest(BaseModel):
     
     term: str = Field(..., description="Search term for businesses", min_length=1, max_length=200)
     location: str = Field(..., description="Location to search in (city, address, coordinates, or zip code)")
-    location_type: YelpLocationType = Field(default=YelpLocationType.CITY, description="Type of location input")
-    categories: Optional[List[str]] = Field(None, description="List of business categories to filter by")
-    radius: Optional[int] = Field(default=40000, description="Search radius in meters (max 40000)", ge=100, le=40000)
     limit: Optional[int] = Field(default=20, description="Maximum number of results to return", ge=1, le=50)
     offset: Optional[int] = Field(default=0, description="Offset for pagination", ge=0)
     sort_by: Optional[str] = Field(default="best_match", description="Sort order: best_match, rating, review_count, distance")
     price: Optional[str] = Field(None, description="Price filter: 1, 2, 3, 4 (1=$, 4=$$$$)")
     open_now: Optional[bool] = Field(None, description="Filter for businesses currently open")
     run_id: Optional[str] = Field(None, description="Unique identifier for the processing run")
-    
-    @field_validator('radius')
-    @classmethod
-    def validate_radius(cls, v):
-        if v is not None and (v < 100 or v > 40000):
-            raise ValueError('Radius must be between 100 and 40000 meters')
-        return v
     
     @field_validator('limit')
     @classmethod

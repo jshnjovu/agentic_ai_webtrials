@@ -10,8 +10,7 @@ from src.schemas import (
     LocationType
 )
 from src.schemas.yelp_fusion import (
-    YelpBusinessSearchRequest, YelpBusinessSearchResponse, YelpBusinessSearchError,
-    YelpLocationType
+    YelpBusinessSearchRequest, YelpBusinessSearchResponse, YelpBusinessSearchError
 )
 from src.services import SerpAPIService, YelpFusionService, BusinessSearchFallbackService
 
@@ -478,9 +477,6 @@ async def search_yelp_businesses(
 async def search_yelp_businesses_get(
     term: str = Query(..., description="Search term for businesses", min_length=1, max_length=200),
     location: str = Query(..., description="Location to search in (city, address, coordinates, or zip code)"),
-    location_type: YelpLocationType = Query(default=YelpLocationType.CITY, description="Type of location input"),
-    categories: Optional[str] = Query(None, description="Comma-separated list of business categories to filter by"),
-    radius: Optional[int] = Query(default=40000, description="Search radius in meters (max 40000)", ge=100, le=40000),
     limit: Optional[int] = Query(default=20, description="Maximum number of results to return", ge=1, le=50),
     offset: Optional[int] = Query(default=0, description="Offset for pagination", ge=0),
     sort_by: Optional[str] = Query(default="best_match", description="Sort order: best_match, rating, review_count, distance"),
@@ -495,9 +491,6 @@ async def search_yelp_businesses_get(
     Args:
         term: Search term for businesses
         location: Location to search in
-        location_type: Type of location input
-        categories: Business category filters
-        radius: Search radius in meters
         limit: Maximum number of results
         offset: Offset for pagination
         sort_by: Sort order
@@ -517,18 +510,10 @@ async def search_yelp_businesses_get(
         if not run_id:
             run_id = str(uuid.uuid4())
         
-        # Parse categories if provided
-        category_list = None
-        if categories:
-            category_list = [cat.strip() for cat in categories.split(",") if cat.strip()]
-        
         # Create request object
         request = YelpBusinessSearchRequest(
             term=term,
             location=location,
-            location_type=location_type,
-            categories=category_list,
-            radius=radius,
             limit=limit,
             offset=offset,
             sort_by=sort_by,
