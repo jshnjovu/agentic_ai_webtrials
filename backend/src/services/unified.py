@@ -239,14 +239,13 @@ class UnifiedAnalyzer:
                 log.info(f"📊 Available score categories: {list(scores.keys())}")
                 log.info(f"📊 Audits available: {list(audits.keys())[:10]}...")  # First 10 audit keys
                 
-                # Log individual score calculations for debugging
-                for category, score_data in scores.items():
-                    raw_score = score_data.get("score", 0)
-                    calculated_score = self._calculate_score(raw_score)
-                    log.info(f"📊 {category}: raw={raw_score}, calculated={calculated_score}")
-                
-                # Detect minimal content sites and adjust scores if necessary
-                adjusted_scores = self._adjust_scores_for_minimal_content(scores, audits, url)
+                # Calculate scores directly
+                adjusted_scores = {
+                    "performance": self._calculate_score(scores.get("performance", {}).get("score", 0)),
+                    "accessibility": self._calculate_score(scores.get("accessibility", {}).get("score", 0)),
+                    "bestPractices": self._calculate_score(scores.get("best-practices", {}).get("score", 0)),
+                    "seo": self._calculate_score(scores.get("seo", {}).get("score", 0)),
+                }
                 
                 result = {
                     "scores": adjusted_scores,
@@ -406,187 +405,9 @@ class UnifiedAnalyzer:
         log.info(f"✅ Generated fallback scores for {url}: {fallback_scores}")
         return fallback_result
 
-    def _adjust_scores_for_minimal_content(self, scores: Dict[str, Any], audits: Dict[str, Any], url: str) -> Dict[str, int]:
-        """Adjust scores for minimal content sites to prevent artificially high scores."""
-        try:
-            # Calculate base scores
-            base_scores = {
-                "performance": self._calculate_score(scores.get("performance", {}).get("score", 0)),
-                "accessibility": self._calculate_score(scores.get("accessibility", {}).get("score", 0)),
-                "bestPractices": self._calculate_score(scores.get("best-practices", {}).get("score", 0)),
-                "seo": self._calculate_score(scores.get("seo", {}).get("score", 0)),
-            }
-            
-            # Detect minimal content indicators
-            minimal_content_indicators = []
-            
-            # Check for very small page sizes (likely minimal content)
-            if "total-byte-weight" in audits:
-                total_bytes = audits.get("total-byte-weight", {}).get("numericValue", 0)
-                if total_bytes and total_bytes < 50000:  # Less than 50KB
-                    minimal_content_indicators.append(f"small_page_size({total_bytes} bytes)")
-            
-            # Check for minimal DOM elements
-            if "dom-size" in audits:
-                dom_size = audits.get("dom-size", {}).get("numericValue", 0)
-                if dom_size and dom_size < 100:  # Less than 100 DOM nodes
-                    minimal_content_indicators.append(f"small_dom({dom_size} nodes)")
-            
-            # Check for minimal text content
-            if "document-title" in audits:
-                title = audits.get("document-title", {}).get("details", {}).get("items", [{}])[0].get("title", "")
-                if title and len(title) < 20:  # Very short title
-                    minimal_content_indicators.append(f"short_title({title})")
-            
-            # Check for minimal images
-            if "image-alt" in audits:
-                image_count = len(audits.get("image-alt", {}).get("details", {}).get("items", []))
-                if image_count < 3:  # Very few images
-                    minimal_content_indicators.append(f"few_images({image_count})")
-            
-            # Check for meaningful content length
-            if "document-title" in audits:
-                title_details = audits.get("document-title", {}).get("details", {})
-                if title_details:
-                    # Check if title suggests minimal content (parked domain, etc.)
-                    title_text = title_details.get("items", [{}])[0].get("title", "").lower()
-                    minimal_keywords = ["buy this domain", "domain for sale", "parked", "coming soon", "under construction"]
-                    if any(keyword in title_text for keyword in minimal_keywords):
-                        minimal_content_indicators.append(f"minimal_title_keywords({title_text})")
-            
-            # Check for minimal interactive elements
-            if "button-name" in audits:
-                button_count = len(audits.get("button-name", {}).get("details", {}).get("items", []))
-                if button_count < 2:  # Very few interactive elements
-                    minimal_content_indicators.append(f"few_buttons({button_count})")
-            
-            # Check for minimal links
-            if "link-name" in audits:
-                link_count = len(audits.get("link-name", {}).get("details", {}).get("items", []))
-                if link_count < 5:  # Very few links
-                    minimal_content_indicators.append(f"few_links({link_count})")
-            
-            # Check for minimal form elements
-            if "label" in audits:
-                form_count = len(audits.get("label", {}).get("details", {}).get("items", []))
-                if form_count < 2:  # Very few form elements
-                    minimal_content_indicators.append(f"few_forms({form_count})")
-            
-            # If minimal content is detected, adjust scores
-            if minimal_content_indicators:
-                log.warning(f"🌐 Minimal content detected for {url}: {', '.join(minimal_content_indicators)}")
-                log.warning(f"📊 Adjusting scores to prevent artificially high results")
-                
-                # Calculate adjustment severity based on indicators
-                severity_score = len(minimal_content_indicators)
-                if any("minimal_title_keywords" in indicator for indicator in minimal_content_indicators):
-                    severity_score += 3  # Heavy penalty for parked domains
-                if any("small_page_size" in indicator for indicator in minimal_content_indicators):
-                    severity_score += 2  # Medium penalty for very small pages
-                
-                # Apply adjustment factors for minimal content
-                adjusted_scores = {}
-                for category, score in base_scores.items():
-                    if score > 70:  # Adjust scores above 70
-                        # More aggressive reduction for higher scores
-                        if severity_score >= 5:
-                            reduction_factor = 0.6  # 40% reduction for severe cases
-                        elif severity_score >= 3:
-                            reduction_factor = 0.7  # 30% reduction for moderate cases
-                        else:
-                            reduction_factor = 0.8  # 20% reduction for mild cases
-                        
-                        adjusted_score = round(score * reduction_factor)
-                        adjusted_scores[category] = adjusted_score
-                        log.info(f"📊 {category}: {score} → {adjusted_score} (minimal content adjustment, severity: {severity_score})")
-                    else:
-                        adjusted_scores[category] = score
-                
-                # Add adjustment metadata
-                adjusted_scores["_adjustment_metadata"] = {
-                    "minimal_content_detected": True,
-                    "indicators": minimal_content_indicators,
-                    "severity_score": severity_score,
-                    "adjustment_reason": "Scores adjusted due to minimal content detection"
-                }
-                
-                # Calculate content quality score
-                content_quality_score = self._calculate_content_quality_score(audits, minimal_content_indicators)
-                adjusted_scores["content_quality"] = content_quality_score
-                
-                return adjusted_scores
-            
-            # No adjustment needed, but still calculate content quality
-            base_scores["content_quality"] = self._calculate_content_quality_score(audits, [])
-            return base_scores
-            
-        except Exception as e:
-            log.warning(f"⚠️ Error adjusting scores for minimal content: {e}")
-            # Return base scores if adjustment fails
-            return {
-                "performance": self._calculate_score(scores.get("performance", {}).get("score", 0)),
-                "accessibility": self._calculate_score(scores.get("accessibility", {}).get("score", 0)),
-                "bestPractices": self._calculate_score(scores.get("best-practices", {}).get("score", 0)),
-                "seo": self._calculate_score(scores.get("seo", {}).get("score", 0)),
-                "content_quality": 50,  # Default content quality score
-            }
 
-    def _calculate_content_quality_score(self, audits: Dict[str, Any], minimal_indicators: List[str]) -> int:
-        """Calculate a content quality score based on various content indicators."""
-        try:
-            quality_score = 50  # Base score
-            
-            # Positive indicators
-            if "document-title" in audits:
-                title_details = audits.get("document-title", {}).get("details", {})
-                if title_details:
-                    title_text = title_details.get("items", [{}])[0].get("title", "").lower()
-                    # Check for meaningful content indicators
-                    meaningful_keywords = ["gym", "fitness", "health", "training", "exercise", "workout"]
-                    if any(keyword in title_text for keyword in meaningful_keywords):
-                        quality_score += 20
-            
-            # Check for substantial content
-            if "total-byte-weight" in audits:
-                total_bytes = audits.get("total-byte-weight", {}).get("numericValue", 0)
-                if total_bytes > 100000:  # More than 100KB
-                    quality_score += 15
-                elif total_bytes > 50000:  # More than 50KB
-                    quality_score += 10
-            
-            # Check for interactive elements
-            if "button-name" in audits:
-                button_count = len(audits.get("button-name", {}).get("details", {}).get("items", []))
-                if button_count >= 5:
-                    quality_score += 10
-                elif button_count >= 2:
-                    quality_score += 5
-            
-            # Check for images
-            if "image-alt" in audits:
-                image_count = len(audits.get("image-alt", {}).get("details", {}).get("items", []))
-                if image_count >= 10:
-                    quality_score += 15
-                elif image_count >= 5:
-                    quality_score += 10
-                elif image_count >= 3:
-                    quality_score += 5
-            
-            # Negative indicators (minimal content)
-            if minimal_indicators:
-                quality_score -= len(minimal_indicators) * 5
-                if any("minimal_title_keywords" in indicator for indicator in minimal_indicators):
-                    quality_score -= 20  # Heavy penalty for parked domains
-            
-            # Clamp to 0-100 range
-            quality_score = max(0, min(100, quality_score))
-            
-            log.info(f"📊 Content quality score calculated: {quality_score}")
-            return quality_score
-            
-        except Exception as e:
-            log.warning(f"⚠️ Error calculating content quality score: {e}")
-            return 50  # Default score
+
+
 
     # ------------------------------------------------------------------ #
     def _calculate_score(self, raw_score) -> int:
@@ -654,103 +475,9 @@ class UnifiedAnalyzer:
             issues.append("Text too small to read")
         return issues
 
-    # ------------------------------------------------------------------ #
-    def estimate_domain_age(self, domain: str) -> str:
-        if len(domain) <= 8 and "-" not in domain and "2" not in domain:
-            return "5+ years (estimated)"
-        if any(year in domain for year in ["2020", "2021", "2022"]):
-            return "2-3 years (estimated)"
-        if "new" in domain or "latest" in domain:
-            return "1-2 years (estimated)"
-        return "3-5 years (estimated)"
 
-    # ------------------------------------------------------------------ #
-    async def analyze_cro(self, url: str) -> Dict[str, Any]:
-        try:
-            mobile_data = await self.run_page_speed_analysis(url, "mobile")
-            desktop_data = await self.run_page_speed_analysis(url, "desktop")
 
-            cro = {
-                "mobileFriendly": mobile_data["mobileUsability"]["mobileFriendly"],
-                "mobileUsabilityScore": mobile_data["mobileUsability"]["score"],
-                "mobileIssues": mobile_data["mobileUsability"]["issues"],
-                "pageSpeed": {
-                    "mobile": mobile_data["scores"]["performance"],
-                    "desktop": desktop_data["scores"]["performance"],
-                    "average": round(
-                        (
-                            mobile_data["scores"]["performance"]
-                            + desktop_data["scores"]["performance"]
-                        )
-                        / 2
-                    ),
-                },
-                "userExperience": {
-                    "loadingTime": self.calculate_ux_score(mobile_data["coreWebVitals"]),
-                    "interactivity": self.calculate_interactivity_score(
-                        mobile_data["serverMetrics"]
-                    ),
-                    "visualStability": self.calculate_visual_stability_score(
-                        mobile_data["coreWebVitals"]
-                    ),
-                },
-                "score": 0,
-                "realData": True,
-            }
 
-            cro["score"] = round(
-                cro["mobileUsabilityScore"] * 0.3
-                + cro["pageSpeed"]["average"] * 0.4
-                + cro["userExperience"]["loadingTime"] * 0.3
-            )
-
-            return cro
-
-        except Exception as e:
-            raise RuntimeError(f"CRO analysis error: {e}") from e
-
-    # ------------------------------------------------------------------ #
-    def calculate_ux_score(self, cwv: Dict[str, Any]) -> int:
-        score = 100
-        lcp = (cwv.get("largestContentfulPaint") or {}).get("value") or 0
-        if lcp > 4000:
-            score -= 30
-        elif lcp > 2500:
-            score -= 15
-
-        cls = (cwv.get("cumulativeLayoutShift") or {}).get("value") or 0
-        if cls > 0.25:
-            score -= 25
-        elif cls > 0.1:
-            score -= 10
-
-        return max(0, score)
-
-    # ------------------------------------------------------------------ #
-    def calculate_interactivity_score(self, sm: Dict[str, Any]) -> int:
-        score = 100
-        tti = (sm.get("timeToInteractive") or {}).get("value") or 0
-        if tti > 5000:
-            score -= 30
-        elif tti > 3000:
-            score -= 15
-
-        tbt = (sm.get("totalBlockingTime") or {}).get("value") or 0
-        if tbt > 600:
-            score -= 25
-        elif tbt > 300:
-            score -= 10
-
-        return max(0, score)
-
-    # ------------------------------------------------------------------ #
-    def calculate_visual_stability_score(self, cwv: Dict[str, Any]) -> int:
-        cls = (cwv.get("cumulativeLayoutShift") or {}).get("value") or 0
-        if cls <= 0.1:
-            return 100
-        if cls <= 0.25:
-            return 80
-        return 50
 
     # ------------------------------------------------------------------ #
     async def analyze_uptime(self, url: str) -> Dict[str, Any]:
@@ -827,192 +554,13 @@ class UnifiedAnalyzer:
             log.error(f"Error updating service health: {e}")
             self.service_health["overall"] = "unknown"
     
-    async def enhance_existing_analysis_with_domain_insights(
-        self, 
-        url: str, 
-        existing_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Enhance existing working analysis with domain insights from domain_analysis.py
-        without replacing what's already working.
-        """
-        try:
-            domain = urlparse(url).hostname
-            log.info(f"🔍 Enhancing analysis for {domain} with domain insights")
-            
-            # Only enhance if domain service is available
-            if not self.domain_service:
-                log.warning(f"⚠️ Domain service not available, skipping enhancement for {domain}")
-                return existing_data
-            
-            # Get domain analysis insights
-            domain_analysis = await self.domain_service.analyze_domain(domain)
-            
-            # Enhance trust data if it exists
-            if existing_data.get("trustAndCRO", {}).get("trust", {}).get("rawResponse"):
-                existing_data = await self._enhance_trust_with_domain_insights(
-                    existing_data, domain_analysis
-                )
-            
-            # Enhance WHOIS data if it exists
-            if existing_data.get("whois"):
-                existing_data = await self._enhance_whois_with_domain_insights(
-                    existing_data, domain_analysis
-                )
-            
-            # Add domain insights as additional layer
-            existing_data["domainInsights"] = {
-                "businessMaturity": {
-                    "isEstablished": domain_analysis["analysis"]["isEstablished"],
-                    "isVeteran": domain_analysis["analysis"]["isVeteran"],
-                    "ageCategory": domain_analysis["domainAge"]["ageDescription"],
-                    "yearsInBusiness": domain_analysis["domainAge"]["years"],
-                    "totalDays": domain_analysis["domainAge"]["totalDays"]
-                },
-                "credibility": {
-                    "score": domain_analysis["analysis"]["credibility"],
-                    "registrar": domain_analysis["whois"]["registrar"],
-                    "registrationStatus": domain_analysis["whois"]["status"],
-                    "nameServerCount": len(domain_analysis["whois"]["nameServers"]),
-                    "whoisHistoryRecords": domain_analysis["whoisHistory"]["totalRecords"] if domain_analysis["whoisHistory"] else 0
-                },
-                "domainHealth": {
-                    "hasValidRegistration": domain_analysis["whois"]["status"] == "ok",
-                    "hasMultipleNameServers": len(domain_analysis["whois"]["nameServers"]) >= 2,
-                    "hasRegistrarInfo": domain_analysis["whois"]["registrar"] != "Unknown"
-                }
-            }
-            
-            log.info(f"✅ Domain insights enhancement completed for {domain}")
-            return existing_data
-            
-        except Exception as e:
-            log.warning(f"⚠️ Domain enhancement failed for {url}: {e}")
-            # Don't break existing analysis - just add warning
-            if "trustAndCRO" in existing_data and "trust" in existing_data["trustAndCRO"]:
-                existing_data["trustAndCRO"]["trust"]["warnings"].append(f"Domain enhancement failed: {e}")
-            return existing_data
+
     
-    async def _enhance_trust_with_domain_insights(
-        self, 
-        existing_data: Dict[str, Any], 
-        domain_analysis: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Enhance existing trust data with domain analysis insights."""
-        try:
-            trust_data = existing_data["trustAndCRO"]["trust"]
-            
-            # Add domain age bonus to existing score (format handling)
-            existing_score = trust_data["rawResponse"].get("score", 0)
-            if existing_score is not None:
-                domain_bonus = self._calculate_domain_age_bonus(domain_analysis["domainAge"])
-                enhanced_score = min(100, existing_score + domain_bonus)
-                
-                # Update both raw and parsed scores
-                trust_data["rawResponse"]["score"] = enhanced_score
-                trust_data["parsed"]["score"] = enhanced_score
-                
-                # Add domain insights to trust data
-                trust_data["domainInsights"] = {
-                    "ageBonus": domain_bonus,
-                    "originalScore": existing_score,
-                    "enhancedScore": enhanced_score,
-                    "ageCategory": domain_analysis["domainAge"]["ageDescription"],
-                    "businessMaturity": "Veteran" if domain_analysis["analysis"]["isVeteran"] else 
-                                      "Established" if domain_analysis["analysis"]["isEstablished"] else 
-                                      "Growing" if domain_analysis["domainAge"]["years"] >= 1 else "New"
-                }
-                
-                log.info(f"📊 Trust score enhanced: {existing_score} → {enhanced_score} (+{domain_bonus} domain bonus)")
-            
-            return existing_data
-            
-        except Exception as e:
-            log.warning(f"⚠️ Trust enhancement failed: {e}")
-            return existing_data
+
     
-    async def _enhance_whois_with_domain_insights(
-        self, 
-        existing_data: Dict[str, Any], 
-        domain_analysis: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Enhance existing WHOIS data with domain analysis insights."""
-        try:
-            # If existing WHOIS data is null/empty, populate with domain analysis
-            if not existing_data.get("whois", {}).get("whois"):
-                existing_data["whois"]["whois"] = {
-                    "rawResponse": {
-                        "createdDate": domain_analysis["whois"]["createdDate"],
-                        "updatedDate": domain_analysis["whois"]["updatedDate"],
-                        "expiresDate": domain_analysis["whois"]["expiresDate"],
-                        "registrar": domain_analysis["whois"]["registrar"],
-                        "status": domain_analysis["whois"]["status"],
-                        "ips": domain_analysis["whois"]["ips"],
-                        "nameServers": domain_analysis["whois"]["nameServers"],
-                        "registrant": domain_analysis["whois"]["registrant"],
-                        "country": domain_analysis["whois"]["country"]
-                    },
-                    "parsed": {
-                        "createdDate": domain_analysis["whois"]["createdDate"],
-                        "updatedDate": domain_analysis["whois"]["updatedDate"],
-                        "expiresDate": domain_analysis["whois"]["expiresDate"],
-                        "registrar": domain_analysis["whois"]["registrar"],
-                        "status": domain_analysis["whois"]["status"],
-                        "ips": domain_analysis["whois"]["ips"],
-                        "nameServers": domain_analysis["whois"]["nameServers"],
-                        "registrant": domain_analysis["whois"]["registrant"],
-                        "country": domain_analysis["whois"]["country"]
-                    }
-                }
-            
-            # Enhance WHOIS history if available
-            if domain_analysis.get("whoisHistory"):
-                existing_data["whois"]["whoisHistory"] = {
-                    "rawResponse": {
-                        "totalRecords": domain_analysis["whoisHistory"]["totalRecords"],
-                        "firstSeen": domain_analysis["whoisHistory"]["firstSeen"],
-                        "lastVisit": domain_analysis["whoisHistory"]["lastVisit"],
-                        "records": domain_analysis["whoisHistory"]["records"],
-                        "note": domain_analysis["whoisHistory"]["note"]
-                    },
-                    "parsed": {
-                        "totalRecords": domain_analysis["whoisHistory"]["totalRecords"],
-                        "firstSeen": domain_analysis["whoisHistory"]["firstSeen"],
-                        "lastVisit": domain_analysis["whoisHistory"]["lastVisit"],
-                        "records": domain_analysis["whoisHistory"]["records"],
-                        "note": domain_analysis["whoisHistory"]["note"]
-                    }
-                }
-            
-            # Add domain age and credibility
-            existing_data["whois"]["domainAge"] = domain_analysis["domainAge"]
-            existing_data["whois"]["credibility"] = domain_analysis["analysis"]["credibility"]
-            
-            return existing_data
-            
-        except Exception as e:
-            log.warning(f"⚠️ WHOIS enhancement failed: {e}")
-            return existing_data
+
     
-    def _calculate_domain_age_bonus(self, domain_age: Dict[str, Any]) -> int:
-        """Calculate domain age bonus for trust scoring (fallback handling)."""
-        try:
-            years = domain_age.get("years", 0)
-            
-            if years >= 10:
-                return 15  # Veteran domain
-            elif years >= 5:
-                return 12  # Established domain
-            elif years >= 2:
-                return 8   # Mature domain
-            elif years >= 1:
-                return 5   # Young domain
-            else:
-                return 2   # New domain
-                
-        except Exception as e:
-            log.warning(f"⚠️ Error calculating domain age bonus: {e}")
-            return 0  # Safe fallback
+
     
     async def _get_whois_data(self, url: str) -> Dict[str, Any]:
         """Get WHOIS data using existing domain analysis service."""
@@ -1322,15 +870,29 @@ class UnifiedAnalyzer:
                     "errors": [f"Uptime analysis failed: {e}"]
                 }
             
-            # 5. ENHANCEMENT: Integrate domain analysis insights
+            # 5. Domain insights integration (simplified)
             try:
-                result = await self.enhance_existing_analysis_with_domain_insights(url, result)
-                log.info(f"✅ Domain insights enhancement completed for {url}")
+                if self.domain_service:
+                    domain_analysis = await self.domain_service.analyze_domain(domain)
+                    result["domainInsights"] = {
+                        "businessMaturity": {
+                            "isEstablished": domain_analysis["analysis"]["isEstablished"],
+                            "isVeteran": domain_analysis["analysis"]["isVeteran"],
+                            "ageCategory": domain_analysis["domainAge"]["ageDescription"],
+                            "yearsInBusiness": domain_analysis["domainAge"]["years"],
+                            "totalDays": domain_analysis["domainAge"]["totalDays"]
+                        },
+                        "credibility": {
+                            "score": domain_analysis["analysis"]["credibility"],
+                            "registrar": domain_analysis["whois"]["registrar"],
+                            "registrationStatus": domain_analysis["whois"]["status"],
+                            "nameServerCount": len(domain_analysis["whois"]["nameServers"]),
+                            "whoisHistoryRecords": domain_analysis["whoisHistory"]["totalRecords"] if domain_analysis["whoisHistory"] else 0
+                        }
+                    }
+                    log.info(f"✅ Domain insights integration completed for {url}")
             except Exception as e:
-                log.warning(f"Domain enhancement failed for {url}: {e}")
-                # Don't break existing analysis - just add warning
-                if result.get("trustAndCRO", {}).get("trust", {}).get("warnings"):
-                    result["trustAndCRO"]["trust"]["warnings"].append(f"Domain enhancement failed: {e}")
+                log.warning(f"Domain insights integration failed for {url}: {e}")
             
             # 6. Calculate summary following whoispageSpeed.md structure
             result["summary"] = self._calculate_summary(result, start_time)
@@ -1391,40 +953,7 @@ class UnifiedAnalyzer:
                 }
             }
     
-    def _calculate_overall_score(self, scores: Dict[str, Any]) -> float:
-        """
-        Calculate overall score with business impact weighting.
-        """
-        try:
-            # Business impact weighting
-            weights = {
-                'performance': 0.25,      # Speed affects user experience and SEO
-                'accessibility': 0.15,    # Legal compliance and user inclusivity
-                'bestPractices': 0.15,    # Security and reliability
-                'seo': 0.15,              # Search engine visibility
-                'trust': 0.20,            # Critical for business credibility
-                'cro': 0.10               # Revenue optimization
-            }
-            
-            overall_score = 0.0
-            total_weight = 0.0
-            
-            for metric, weight in weights.items():
-                if metric in scores and scores[metric] is not None:
-                    overall_score += scores[metric] * weight
-                    total_weight += weight
-            
-            # Normalize score if some metrics are missing
-            if total_weight > 0:
-                final_score = overall_score / total_weight
-            else:
-                final_score = 0.0
-            
-            return round(final_score, 2)
-            
-        except Exception as e:
-            log.error(f"Error calculating overall score: {e}")
-            return 0.0
+
     
     def get_service_health(self) -> Dict[str, Any]:
         """Get comprehensive service health status."""
