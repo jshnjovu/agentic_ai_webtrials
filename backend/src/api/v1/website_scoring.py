@@ -3,10 +3,9 @@ Website scoring API endpoints for comprehensive speed analysis using unified ana
 Provides endpoints for website analysis using enhanced unified analyzer with caching, retry logic, and comprehensive metrics.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from typing import Optional, List
+from fastapi import APIRouter, HTTPException, Depends
+from typing import List
 from datetime import datetime
-import uuid
 import time
 import logging
 
@@ -16,20 +15,12 @@ from src.schemas.website_scoring import (
     ConfidenceLevel,
     ScoreValidationRequest,
     ScoreValidationResponse,
-    RateLimitExceededError,
-    FallbackScoringRequest,
-    FallbackScoringResponse,
-    FallbackScoringError,
-    FallbackMonitoringResponse,
     PageSpeedAuditRequest,
     PageSpeedAuditResponse,
-    PageSpeedAuditError,
-    CoreWebVitals,
     WebsiteScore
 )
 from src.services.unified import UnifiedAnalyzer
-from src.services.rate_limiter import RateLimiter
-from src.utils.score_calculation import calculate_overall_score, get_score_insights
+
 
 router = APIRouter(prefix="/website-scoring", tags=["website-scoring"])
 
@@ -43,9 +34,7 @@ def get_unified_analyzer() -> UnifiedAnalyzer:
     return UnifiedAnalyzer()
 
 
-def get_rate_limiter() -> RateLimiter:
-    """Dependency to get RateLimiter instance."""
-    return RateLimiter()
+
 
 
 @router.post("/pagespeed", response_model=PageSpeedAuditResponse)
@@ -64,9 +53,7 @@ async def run_pagespeed_audit(
         PageSpeed audit response with analysis scores and metrics
     """
     try:
-        # Log the request details
-        logger.info(f"🚀 Starting PageSpeed audit for URL: {request.website_url}")
-        logger.info(f"📋 Request details: business_id={request.business_id}, run_id={request.run_id}, strategy={request.strategy}")
+        logger.info(f"🚀 Starting PageSpeed audit for {request.website_url}")
         
         # Run PageSpeed analysis using unified analyzer
         analysis_result = await analyzer.run_page_speed_analysis(
@@ -79,7 +66,6 @@ async def run_pagespeed_audit(
         
         if is_fallback:
             logger.warning(f"⚠️ Using fallback scores for {request.website_url}")
-            logger.warning(f"📋 Fallback reason: {analysis_result.get('fallback_reason', {}).get('primary_reason', 'UNKNOWN')}")
         
         # Extract scores from analysis result
         scores_data = analysis_result.get("scores", {})
@@ -136,36 +122,12 @@ async def run_pagespeed_audit(
                 }
             }
         
-        # Log final results
-        if is_fallback:
-            logger.warning(f"⚠️ Final fallback scores for {request.website_url}: {website_scores}")
-        else:
-            logger.info(f"✅ PageSpeed analysis completed for {request.website_url}")
-            logger.info(f"📊 Final scores: {website_scores}")
+        logger.info(f"✅ PageSpeed analysis completed for {request.website_url}")
         
         return response
         
     except Exception as e:
-        # Enhanced error logging
-        error_context = {
-            "website_url": request.website_url,
-            "business_id": request.business_id,
-            "run_id": request.run_id,
-            "strategy": request.strategy.value,  # Convert enum to string value
-            "error_type": type(e).__name__,
-            "error_message": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        logger.error(f"❌ PageSpeed audit failed for {request.website_url}")
-        logger.error(f"🔍 Error context: {error_context}")
-        logger.error(f"📋 Full error details: {e}")
-        
-        # Log additional debugging info if available
-        if hasattr(e, '__traceback__'):
-            import traceback
-            logger.error(f"📚 Traceback: {''.join(traceback.format_tb(e.__traceback__))}")
-        
+        logger.error(f"❌ PageSpeed audit failed for {request.website_url}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error during PageSpeed audit: {str(e)}"
@@ -176,80 +138,66 @@ def _validate_and_log_scores(scores: WebsiteScore, website_url: str):
     """Validate scores and log any anomalies for debugging."""
     try:
         # Check for extreme scores that might indicate calculation errors
-        extreme_scores = []
-        if scores.performance == 100:
-            extreme_scores.append(f"performance={scores.performance}")
-        if scores.accessibility == 100:
-            extreme_scores.append(f"accessibility={scores.accessibility}")
-        if scores.best_practices == 100:
-            extreme_scores.append(f"best_practices={scores.best_practices}")
-        if scores.seo == 100:
-            extreme_scores.append(f"seo={scores.seo}")
-        
-        if extreme_scores:
-            logger.warning(f"⚠️ Perfect scores detected for {website_url}: {', '.join(extreme_scores)}")
-            logger.warning(f"📋 This might indicate a calculation issue or extremely well-optimized site")
+        if any(score == 100 for score in [scores.performance, scores.accessibility, scores.best_practices, scores.seo]):
+            logger.warning(f"⚠️ Perfect scores detected for {website_url} - verify calculation accuracy")
         
         # Check for very low scores that might indicate issues
-        low_scores = []
-        if scores.performance <= 10:
-            low_scores.append(f"performance={scores.performance}")
-        if scores.accessibility <= 10:
-            low_scores.append(f"accessibility={scores.accessibility}")
-        if scores.best_practices <= 10:
-            low_scores.append(f"best_practices={scores.best_practices}")
-        if scores.seo <= 10:
-            low_scores.append(f"seo={scores.seo}")
-        
+        low_scores = [score for score in [scores.performance, scores.accessibility, scores.best_practices, scores.seo] if score <= 10]
         if low_scores:
-            logger.info(f"📊 Very low scores for {website_url}: {', '.join(low_scores)}")
-            logger.info(f"📋 This might indicate site issues or legitimate poor performance")
+            logger.info(f"📊 Very low scores for {website_url}: {low_scores}")
         
         # Log overall score calculation
         expected_overall = round(sum([scores.performance, scores.accessibility, scores.best_practices, scores.seo]) / 4)
         if expected_overall != scores.overall:
-            logger.warning(f"⚠️ Score calculation mismatch for {website_url}")
-            logger.warning(f"📋 Expected overall: {expected_overall}, got: {scores.overall}")
-            logger.warning(f"📋 Individual scores: p={scores.performance}, a={scores.accessibility}, bp={scores.best_practices}, seo={scores.seo}")
+            logger.warning(f"⚠️ Score calculation mismatch for {website_url}: expected {expected_overall}, got {scores.overall}")
         
     except Exception as e:
         logger.error(f"❌ Error validating scores for {website_url}: {e}")
 
 
-@router.post("/pagespeed/batch")
-async def run_batch_pagespeed_audits(
-    requests: List[PageSpeedAuditRequest],
+@router.post("/batch")
+async def run_batch_analysis(
+    request: dict,
     analyzer: UnifiedAnalyzer = Depends(get_unified_analyzer)
 ):
     """
-    Run multiple PageSpeed audits concurrently using unified analyzer.
+    Run batch analysis on multiple URLs using unified analyzer.
     
     Args:
-        requests: List of PageSpeed audit requests
+        request: Batch analysis request with list of URLs and analysis type
         analyzer: Unified analyzer instance
         
     Returns:
-        List of PageSpeed audit responses
+        Batch analysis results
     """
     try:
-        # Extract URLs from requests
-        urls = [req.website_url for req in requests]
+        urls = request.get("urls", [])
+        analysis_type = request.get("type", "pagespeed")  # "pagespeed" or "comprehensive"
+        strategy = request.get("strategy", "mobile")
+        max_concurrent = request.get("max_concurrent", 3)
+        
+        if not urls:
+            raise HTTPException(status_code=400, detail="URLs list is required")
         
         # Run batch analysis using unified analyzer
-        results = await analyzer.run_batch_analysis(urls, strategy=requests[0].strategy.value)
+        if analysis_type == "comprehensive":
+            results = await analyzer.run_batch_analysis(urls, strategy, max_concurrent)
+        else:
+            results = await analyzer.run_batch_analysis(urls, strategy, max_concurrent)
         
         return {
             "success": True,
-            "total_requests": len(requests),
-            "successful_audits": sum(1 for r in results if r.get("success", False)),
-            "failed_audits": sum(1 for r in results if not r.get("success", False)),
+            "total_urls": len(urls),
+            "analysis_type": analysis_type,
+            "successful_analyses": sum(1 for r in results if r.get("success", False)),
+            "failed_analyses": sum(1 for r in results if not r.get("success", False)),
             "results": results
         }
         
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during batch PageSpeed audit: {str(e)}"
+            detail=f"Internal server error during batch analysis: {str(e)}"
         )
 
 
@@ -326,45 +274,7 @@ async def run_comprehensive_analysis(
         )
 
 
-@router.post("/comprehensive/batch")
-async def run_batch_comprehensive_analysis(
-    request: dict,
-    analyzer: UnifiedAnalyzer = Depends(get_unified_analyzer)
-):
-    """
-    Run comprehensive analysis on multiple URLs using unified analyzer.
-    
-    Args:
-        request: Batch analysis request with list of URLs
-        analyzer: Unified analyzer instance
-        
-    Returns:
-        Batch analysis results
-    """
-    try:
-        urls = request.get("urls", [])
-        strategy = request.get("strategy", "mobile")
-        max_concurrent = request.get("max_concurrent", 3)
-        
-        if not urls:
-            raise HTTPException(status_code=400, detail="URLs list is required")
-        
-        # Run batch comprehensive analysis using unified analyzer
-        results = await analyzer.run_batch_analysis(urls, strategy, max_concurrent)
-        
-        return {
-            "success": True,
-            "total_urls": len(urls),
-            "successful_analyses": sum(1 for r in results if r.get("success", False)),
-            "failed_analyses": sum(1 for r in results if not r.get("success", False)),
-            "results": results
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error during batch comprehensive analysis: {str(e)}"
-        )
+
 
 
 @router.get("/health")
@@ -443,14 +353,13 @@ async def validate_score(
         
         # Calculate confidence based on score difference
         score_difference = abs(score_to_validate - actual_score)
-        if score_difference <= 5:
-            confidence = ConfidenceLevel.HIGH
-        elif score_difference <= 15:
-            confidence = ConfidenceLevel.MEDIUM
-        else:
-            confidence = ConfidenceLevel.LOW
+        confidence = (
+            ConfidenceLevel.HIGH if score_difference <= 5 else
+            ConfidenceLevel.MEDIUM if score_difference <= 15 else
+            ConfidenceLevel.LOW
+        )
         
-        validation_response = ScoreValidationResponse(
+        return ScoreValidationResponse(
             business_id=request.business_id,
             website_url=request.website_url,
             score_type=request.score_type,
@@ -462,8 +371,6 @@ async def validate_score(
             is_valid=score_difference <= 10
         )
         
-        return validation_response
-        
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -471,90 +378,7 @@ async def validate_score(
         )
 
 
-@router.post("/fallback-scoring")
-async def run_fallback_scoring(
-    request: FallbackScoringRequest,
-    analyzer: UnifiedAnalyzer = Depends(get_unified_analyzer)
-) -> FallbackScoringResponse:
-    """
-    Run fallback scoring using unified analyzer when primary services fail.
-    
-    Args:
-        request: Fallback scoring request
-        analyzer: Unified analyzer instance
-        
-    Returns:
-        Fallback scoring response
-    """
-    try:
-        url = request.website_url
-        strategy = request.fallback_strategy.value if request.fallback_strategy else "mobile"
-        
-        # Use unified analyzer's comprehensive analysis as fallback
-        fallback_result = await analyzer.run_comprehensive_analysis(url, strategy)
-        
-        if not fallback_result.get("success", False):
-            raise FallbackScoringError(
-                success=False,
-                error=fallback_result.get("error", "Fallback analysis failed"),
-                error_code=fallback_result.get("error_code", "FALLBACK_FAILED"),
-                context="fallback_scoring"
-            )
-        
-        # Extract scores from fallback result
-        scores = fallback_result.get("scores", {})
-        
-        fallback_response = FallbackScoringResponse(
-            success=True,
-            business_id=request.business_id,
-            website_url=request.website_url,
-            fallback_strategy=request.fallback_strategy,
-            scores=scores,
-            analysis_timestamp=datetime.now().isoformat(),
-            fallback_reason=request.fallback_reason,
-            confidence_level=ConfidenceLevel.MEDIUM  # Fallback results have medium confidence
-        )
-        
-        return fallback_response
-        
-    except FallbackScoringError:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error during fallback scoring: {str(e)}"
-        )
 
 
-@router.get("/fallback-monitoring")
-async def get_fallback_monitoring(
-    analyzer: UnifiedAnalyzer = Depends(get_unified_analyzer)
-) -> FallbackMonitoringResponse:
-    """
-    Get fallback system monitoring information.
-    
-    Args:
-        analyzer: Unified analyzer instance
-        
-    Returns:
-        Fallback monitoring response
-    """
-    try:
-        # Get health status to monitor fallback system
-        health_status = analyzer.get_service_health()
-        
-        monitoring_response = FallbackMonitoringResponse(
-            fallback_system_status="operational" if health_status["status"] != "unhealthy" else "degraded",
-            last_fallback_triggered=datetime.now().isoformat(),
-            fallback_success_rate=100.0,  # Placeholder - would be calculated from actual usage
-            active_fallback_strategies=["unified_analyzer"],
-            system_health=health_status
-        )
-        
-        return monitoring_response
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error retrieving fallback monitoring: {str(e)}"
-        )
+
+
