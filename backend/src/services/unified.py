@@ -164,6 +164,153 @@ class UnifiedAnalyzer:
                 )
         return opportunities[:3]
 
+    def get_generic_opportunities(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Generate generic improvement opportunities when specific ones can't be generated.
+        This provides helpful guidance even when PageSpeed analysis fails.
+        """
+        generic_opportunities = []
+        
+        # Check if PageSpeed analysis failed
+        page_speed = analysis_result.get("pageSpeed", {})
+        if not page_speed or (page_speed.get("mobile") is None and page_speed.get("desktop") is None):
+            generic_opportunities.append({
+                "title": "Website Accessibility Issue",
+                "description": "The website appears to be inaccessible or experiencing technical difficulties. This prevents detailed performance analysis.",
+                "potentialSavings": 0,
+                "unit": "priority"
+            })
+            generic_opportunities.append({
+                "title": "Server Response Problem",
+                "description": "The website server is not responding properly, which affects user experience and search engine visibility.",
+                "potentialSavings": 0,
+                "unit": "priority"
+            })
+            generic_opportunities.append({
+                "title": "Technical Infrastructure Review",
+                "description": "Consider reviewing hosting, DNS configuration, and server health to resolve accessibility issues.",
+                "potentialSavings": 0,
+                "unit": "priority"
+            })
+            return generic_opportunities
+        
+        # Check for specific failure scenarios
+        errors = page_speed.get("errors", [])
+        if errors:
+            error_messages = [str(error) for error in errors]
+            error_text = "; ".join(error_messages[:2])  # Limit to first 2 errors
+            
+            if "400" in error_text or "Bad Request" in error_text:
+                generic_opportunities.append({
+                    "title": "Invalid Website Configuration",
+                    "description": f"The website returned an error (400 Bad Request), indicating configuration issues that prevent analysis.",
+                    "potentialSavings": 0,
+                    "unit": "priority"
+                })
+            elif "timeout" in error_text.lower():
+                generic_opportunities.append({
+                    "title": "Website Performance Issue",
+                    "description": "The website is taking too long to respond, indicating performance problems that need immediate attention.",
+                    "potentialSavings": 0,
+                    "unit": "priority"
+                })
+            else:
+                generic_opportunities.append({
+                    "title": "Technical Analysis Failure",
+                    "description": f"Unable to analyze website due to technical issues: {error_text}",
+                    "potentialSavings": 0,
+                    "unit": "priority"
+                })
+        
+        # Check if WHOIS analysis failed
+        whois = analysis_result.get("whois", {})
+        if whois and whois.get("errors") and len(whois["errors"]) > 0:
+            generic_opportunities.append({
+                "title": "Domain Information Unavailable",
+                "description": "Unable to retrieve domain registration information, which may affect trust and credibility assessment.",
+                "potentialSavings": 0,
+                "unit": "priority"
+            })
+        
+        # Check if Trust/CRO analysis failed
+        trust_cro = analysis_result.get("trustAndCRO", {})
+        if trust_cro and trust_cro.get("errors") and len(trust_cro["errors"]) > 0:
+            generic_opportunities.append({
+                "title": "Security Assessment Incomplete",
+                "description": "Unable to complete security and conversion optimization analysis due to technical limitations.",
+                "potentialSavings": 0,
+                "unit": "priority"
+            })
+        
+        # If we have some opportunities but not enough, add generic ones
+        if len(generic_opportunities) < 3:
+            # Add general improvement suggestions
+            remaining_slots = 3 - len(generic_opportunities)
+            
+            general_suggestions = [
+                {
+                    "title": "Regular Performance Monitoring",
+                    "description": "Implement ongoing website performance monitoring to catch issues early and maintain optimal user experience.",
+                    "potentialSavings": 0,
+                    "unit": "ongoing"
+                },
+                {
+                    "title": "Mobile-First Optimization",
+                    "description": "Ensure your website is optimized for mobile devices, as mobile traffic continues to grow.",
+                    "potentialSavings": 0,
+                    "unit": "ongoing"
+                },
+                {
+                    "title": "Security Best Practices",
+                    "description": "Implement security headers, SSL certificates, and regular security audits to build user trust.",
+                    "potentialSavings": 0,
+                    "unit": "ongoing"
+                }
+            ]
+            
+            generic_opportunities.extend(general_suggestions[:remaining_slots])
+        
+        return generic_opportunities[:3]
+
+    def get_all_opportunities(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Get all available opportunities, combining specific PageSpeed opportunities with generic ones.
+        This ensures the UI always has meaningful improvement suggestions to display.
+        """
+        all_opportunities = []
+        
+        # First, try to get specific PageSpeed opportunities
+        page_speed = analysis_result.get("pageSpeed", {})
+        if page_speed:
+            # Check mobile opportunities first
+            mobile = page_speed.get("mobile")
+            if mobile and mobile.get("opportunities"):
+                all_opportunities.extend(mobile["opportunities"])
+            
+            # Add desktop opportunities if we don't have enough
+            if len(all_opportunities) < 3:
+                desktop = page_speed.get("desktop")
+                if desktop and desktop.get("opportunities"):
+                    for opp in desktop["opportunities"]:
+                        if len(all_opportunities) >= 3:
+                            break
+                        # Avoid duplicates by checking title
+                        if not any(existing["title"] == opp["title"] for existing in all_opportunities):
+                            all_opportunities.append(opp)
+        
+        # If we don't have enough specific opportunities, add generic ones
+        if len(all_opportunities) < 3:
+            generic_opps = self.get_generic_opportunities(analysis_result)
+            for opp in generic_opps:
+                if len(all_opportunities) >= 3:
+                    break
+                # Avoid duplicates
+                if not any(existing["title"] == opp["title"] for existing in all_opportunities):
+                    all_opportunities.append(opp)
+        
+        # Ensure we return exactly 3 opportunities
+        return all_opportunities[:3]
+
     # ------------------------------------------------------------------ #
     async def run_page_speed_analysis(
         self, url: str, strategy: str = "mobile"
@@ -772,6 +919,12 @@ class UnifiedAnalyzer:
                     "errors": [f"PageSpeed API error: {e}"]
                 }
             
+            # Add generic opportunities when specific ones aren't available
+            if not result["pageSpeed"].get("mobile") and not result["pageSpeed"].get("desktop"):
+                # Add generic opportunities to the result for UI display
+                result["genericOpportunities"] = self.get_generic_opportunities(result)
+                log.info(f"📋 Added {len(result['genericOpportunities'])} generic opportunities for {url}")
+            
             # 2. WHOIS Analysis (use domain_analysis.py)
             try:
                 whois_result = await self._get_whois_data(url)
@@ -1097,13 +1250,3 @@ class UnifiedAnalyzer:
         total_score = sum(values)
         return round(total_score / 5.0, 2)
     
-    def get_scores_summary(self, analysis_result: Dict[str, Any]) -> Dict[str, Union[int, float]]:
-        """Get comprehensive scores summary."""
-        return {
-            "Performance": self.get_performance_score(analysis_result),
-            "Accessibility": self.get_accessibility_score(analysis_result),
-            "SEO": self.get_seo_score(analysis_result),
-            "Trust": self.get_trust_score(analysis_result),
-            "CRO": self.get_cro_score(analysis_result),
-            "Overall": self.get_overall_score(analysis_result)
-        }

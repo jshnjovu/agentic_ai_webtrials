@@ -91,7 +91,8 @@ export default async function handler(
           total_blocking_time: scoreData.coreWebVitals.totalBlockingTime || null,
           speed_index: scoreData.coreWebVitals.speedIndex || null,
           scoring_method: scoreData.fallbackUsed ? 'heuristic_fallback' : 'pagespeed',
-          confidence: scoreData.confidence
+          confidence: scoreData.confidence,
+          opportunities: scoreData.opportunities || []
         };
 
         // Map scores to the fields expected by frontend components

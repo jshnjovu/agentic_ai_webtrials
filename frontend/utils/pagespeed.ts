@@ -35,6 +35,12 @@ export interface PageSpeedResult {
   fallbackUsed: boolean;
   confidence: 'high' | 'medium' | 'low';
   error?: string;
+  opportunities?: Array<{
+    title: string;
+    description: string;
+    potentialSavings: number;
+    unit: string;
+  }>;
 }
 
 /**
@@ -76,6 +82,7 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
 
     // Extract scores from the comprehensive analysis result
     let performance = 0, accessibility = 0, seo = 0, trust = 0, cro = 0;
+    let opportunities: Array<{title: string; description: string; potentialSavings: number; unit: string}> = [];
     
     // Extract PageSpeed scores (mobile preferred, fallback to desktop)
     if (data.pageSpeed) {
@@ -86,6 +93,15 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
       performance = scores.performance || 0;
       accessibility = scores.accessibility || 0;
       seo = scores.seo || 0;
+      
+      // Extract opportunities from the opportunities field (includes both specific and generic)
+      if (data.opportunities && data.opportunities.length > 0) {
+        opportunities = data.opportunities;
+      } else if (mobile?.opportunities) {
+        opportunities = mobile.opportunities;
+      } else if (desktop?.opportunities) {
+        opportunities = desktop.opportunities;
+      }
     }
     
     // Extract Trust and CRO scores from the comprehensive analysis
@@ -119,6 +135,7 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
       },
       fallbackUsed: false, // Comprehensive analysis is the primary method
       confidence: 'high',
+      opportunities: opportunities,
     };
 
     console.log('✅ Comprehensive analysis completed:', result);

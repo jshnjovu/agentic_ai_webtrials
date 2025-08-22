@@ -307,7 +307,7 @@ export default function LeadGenSequentialResults({
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-center">
                           <div className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${getScoreColor(business.score_overall || 0)}`}>
-                            {business.score_overall || 0}/100
+                            {business.score_overall || 0}%
                           </div>
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-center">
@@ -402,31 +402,40 @@ export default function LeadGenSequentialResults({
                       <div className="flex items-start justify-between mb-3">
                         <h5 className="font-medium text-gray-900">{business.business_name}</h5>
                         <div className={`inline-flex px-2 py-1 rounded text-xs font-medium ${getScoreColor(business.score_overall || 0)}`}>
-                          {business.score_overall || 0}/100
+                          {business.score_overall || 0}%
                         </div>
                       </div>
                       
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Performance:</span>
-                          <span className="font-medium">{business.score_perf}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Accessibility:</span>
-                          <span className="font-medium">{business.score_access}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">SEO:</span>
-                          <span className="font-medium">{business.score_seo}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Trust:</span>
-                          <span className="font-medium">{business.score_trust}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">CRO:</span>
-                          <span className="font-medium">{business.score_cro}</span>
-                        </div>
+                      {/* Improvement Opportunities Table */}
+                      <div className="mt-3">
+                        <h6 className="text-xs font-medium text-gray-700 mb-2">Improvement Opportunities:</h6>
+                        {business.website_score?.opportunities && business.website_score.opportunities.length > 0 ? (
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-xs">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-2 py-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Opportunity</th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-gray-100">
+                                {business.website_score.opportunities.slice(0, 3).map((opportunity, oppIndex) => (
+                                  <tr key={oppIndex} className="hover:bg-gray-50">
+                                    <td className="px-2 py-1">
+                                      <div className="text-xs text-gray-900 font-medium">{opportunity.title}</div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-500 italic">
+                            {business.website_score ? 
+                              `No opportunities found (${business.website_score.opportunities?.length || 0} available)` : 
+                              'Website score data not available'
+                            }
+                          </div>
+                        )}
                       </div>
 
                       {business.top_issues && business.top_issues.length > 0 && (

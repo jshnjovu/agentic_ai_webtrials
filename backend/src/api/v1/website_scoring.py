@@ -293,6 +293,12 @@ async def run_comprehensive_analysis(
                 overall_score = analyzer.get_overall_score(result)
                 result["overall_score"] = overall_score
                 logger.info(f"✅ Added calculated Overall score: {overall_score} for {url}")
+                
+                # Add opportunities (both specific and generic) to the result
+                opportunities = analyzer.get_all_opportunities(result)
+                result["opportunities"] = opportunities
+                logger.info(f"📋 Added {len(opportunities)} opportunities for {url}")
+                
             except Exception as score_error:
                 logger.warning(f"⚠️ Could not calculate Overall score for {url}: {score_error}")
                 result["overall_score"] = None

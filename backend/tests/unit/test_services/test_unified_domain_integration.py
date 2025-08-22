@@ -225,10 +225,113 @@ class TestUnifiedDomainIntegration:
         
         # Test scores summary
         scores_summary = analyzer.get_scores_summary(result)
-        assert "Performance" in scores_summary
-        assert "Overall" in scores_summary
+        print(f"📋 Scores summary: {scores_summary}")
+        
+        # Verify all required keys are present
+        required_keys = ["Performance", "Accessibility", "SEO", "Trust", "CRO", "Overall"]
+        for key in required_keys:
+            assert key in scores_summary, f"Missing key '{key}' in scores summary"
+            assert isinstance(scores_summary[key], (int, float)), f"Score '{key}' should be numeric"
+            assert 0 <= scores_summary[key] <= 100, f"Score '{key}' out of range"
         
         print(f"✅ Score extraction with domain data test passed")
+    
+    @pytest.mark.asyncio
+    @pytest.mark.fast
+    async def test_extract_opportunities_functionality(self, analyzer, urls):
+        """Test the extract_opportunities method functionality."""
+        print(f"\n✅ Testing extract_opportunities functionality")
+        
+        # Use first URL for quick test
+        test_url = urls[0]
+        print(f"🌐 Testing with URL: {test_url}")
+        
+        # Run PageSpeed analysis to get audits data
+        pagespeed_result = await analyzer.run_page_speed_analysis(test_url)
+        
+        # Extract opportunities from mobile data (preferred)
+        mobile_data = pagespeed_result.get("mobile", {})
+        if mobile_data and "opportunities" in mobile_data:
+            opportunities = mobile_data["opportunities"]
+            print(f"📊 Found {len(opportunities)} opportunities in mobile data")
+            
+            # Test opportunities structure
+            for i, opp in enumerate(opportunities):
+                print(f"   Opportunity {i+1}: {opp.get('title', 'No title')}")
+                assert "title" in opp, f"Opportunity {i+1} missing title"
+                assert "description" in opp, f"Opportunity {i+1} missing description"
+                assert "potentialSavings" in opp, f"Opportunity {i+1} missing potentialSavings"
+                assert "unit" in opp, f"Opportunity {i+1} missing unit"
+                
+                # Verify data types
+                assert isinstance(opp["title"], str), f"Title should be string"
+                assert isinstance(opp["description"], str), f"Description should be string"
+                assert isinstance(opp["potentialSavings"], (int, float)), f"PotentialSavings should be numeric"
+                assert isinstance(opp["unit"], str), f"Unit should be string"
+                
+                # Verify potentialSavings is positive
+                assert opp["potentialSavings"] > 0, f"PotentialSavings should be positive"
+        else:
+            print(f"⚠️ No opportunities found in mobile data")
+        
+        # Test the extract_opportunities method directly
+        if mobile_data and "audits" in mobile_data:
+            audits = mobile_data["audits"]
+            opportunities = analyzer.extract_opportunities(audits)
+            print(f"🔍 extract_opportunities method returned {len(opportunities)} opportunities")
+            
+            # Verify the method works correctly
+            assert isinstance(opportunities, list), "extract_opportunities should return a list"
+            
+            # Each opportunity should have the expected structure
+            for opp in opportunities:
+                assert "title" in opp, "Opportunity missing title"
+                assert "description" in opp, "Opportunity missing description"
+                assert "potentialSavings" in opp, "Opportunity missing potentialSavings"
+                assert "unit" in opp, "Opportunity missing unit"
+        
+        print(f"✅ extract_opportunities functionality test passed")
+    
+    @pytest.mark.asyncio
+    @pytest.mark.fast
+    async def test_comprehensive_analysis_opportunities(self, analyzer, urls):
+        """Test that comprehensive analysis includes opportunities data."""
+        print(f"\n✅ Testing comprehensive analysis opportunities")
+        
+        # Use first URL for quick test
+        test_url = urls[0]
+        print(f"🌐 Testing with URL: {test_url}")
+        
+        # Run comprehensive analysis
+        result = await analyzer.run_comprehensive_analysis(test_url)
+        
+        # Check if opportunities are included in PageSpeed data
+        page_speed = result.get("pageSpeed", {})
+        mobile = page_speed.get("mobile", {})
+        desktop = page_speed.get("desktop", {})
+        
+        print(f"📱 Mobile opportunities: {len(mobile.get('opportunities', [])) if mobile else 'No mobile data'}")
+        print(f"💻 Desktop opportunities: {len(desktop.get('opportunities', [])) if desktop else 'No desktop data'}")
+        
+        # Verify opportunities structure if present
+        for strategy, data in [("mobile", mobile), ("desktop", desktop)]:
+            if data and "opportunities" in data:
+                opportunities = data["opportunities"]
+                print(f"📊 {strategy.capitalize()} opportunities structure:")
+                
+                for i, opp in enumerate(opportunities[:3]):  # Show first 3
+                    print(f"   {i+1}. {opp.get('title', 'No title')} - {opp.get('potentialSavings', 0)} {opp.get('unit', '')}")
+                
+                # Verify opportunities structure
+                assert isinstance(opportunities, list), f"{strategy} opportunities should be a list"
+                
+                for opp in opportunities:
+                    assert "title" in opp, f"{strategy} opportunity missing title"
+                    assert "description" in opp, f"{strategy} opportunity missing description"
+                    assert "potentialSavings" in opp, f"{strategy} opportunity missing potentialSavings"
+                    assert "unit" in opp, f"{strategy} opportunity missing unit"
+        
+        print(f"✅ Comprehensive analysis opportunities test passed")
     
     @pytest.mark.asyncio
     @pytest.mark.fast

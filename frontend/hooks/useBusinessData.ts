@@ -31,6 +31,15 @@ export interface Business {
   demo_skip_reason?: string;
   demo_error?: string;
   generated_site_url?: string;
+  // Website score details including opportunities
+  website_score?: {
+    opportunities?: Array<{
+      title: string;
+      description: string;
+      potentialSavings: number;
+      unit: string;
+    }>;
+  };
 }
 
 interface BusinessDataResponse {
