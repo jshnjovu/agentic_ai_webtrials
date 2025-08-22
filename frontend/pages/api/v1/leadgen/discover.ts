@@ -26,7 +26,7 @@ export default async function handler(
       location: location,
       location_type: 'city', // Default to city search
       categories: [niche], // Yelp uses categories array
-      limit: max_businesses || 10,
+      limit: max_businesses || 2,
       radius: 5000 // Default 5km radius
     };
 

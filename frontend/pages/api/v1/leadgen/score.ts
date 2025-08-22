@@ -71,8 +71,9 @@ export default async function handler(
           overall: scoreData.overallScore,
           performance: scoreData.scores.performance,
           accessibility: scoreData.scores.accessibility,
-          bestPractices: scoreData.scores.bestPractices,
           seo: scoreData.scores.seo,
+          trust: scoreData.scores.trust,
+          cro: scoreData.scores.cro,
           fallbackUsed: scoreData.fallbackUsed || false
         });
 
@@ -81,8 +82,9 @@ export default async function handler(
           overall_score: scoreData.overallScore || 0,
           performance_score: scoreData.scores.performance || 0,
           accessibility_score: scoreData.scores.accessibility || 0,
-          best_practices_score: scoreData.scores.bestPractices || 0,
           seo_score: scoreData.scores.seo || 0,
+          trust_score: scoreData.scores.trust || 0,
+          cro_score: scoreData.scores.cro || 0,
           first_contentful_paint: scoreData.coreWebVitals.firstContentfulPaint || null,
           largest_contentful_paint: scoreData.coreWebVitals.largestContentfulPaint || null,
           cumulative_layout_shift: scoreData.coreWebVitals.cumulativeLayoutShift || null,

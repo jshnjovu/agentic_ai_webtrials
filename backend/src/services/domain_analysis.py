@@ -5,7 +5,7 @@ Integrates WHOIS and DNS History APIs from WHOISXMLAPIs
 
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
 import requests
@@ -169,7 +169,7 @@ class DomainAnalysisService:
                 "ageDescription": "Invalid Date",
             }
 
-        delta = datetime.now(datetime.timezone.utc) - created
+        delta = datetime.now(timezone.utc) - created
         total_days = delta.days
         years, rem = divmod(total_days, 365)
         months = math.floor(rem / 30)

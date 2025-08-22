@@ -7,7 +7,7 @@ import logging
 import math
 import asyncio
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from urllib.parse import urlparse
 from tenacity import retry, stop_after_attempt, wait_exponential
 from datetime import datetime
@@ -134,13 +134,18 @@ class UnifiedAnalyzer:
 
     # ------------------------------------------------------------------ #
     def extract_metric(self, metric: Dict[str, Any]) -> Dict[str, Any] | None:
+        """Extract metric data with safe fallbacks."""
         if not metric:
             return None
         return {
-            "value": metric["numericValue"],
-            "displayValue": metric["displayValue"],
+            "value": metric.get("numericValue"),
+            "displayValue": metric.get("displayValue"),
             "unit": metric.get("numericUnit", ""),
         }
+    
+
+    
+
 
     # ------------------------------------------------------------------ #
     def extract_opportunities(self, audits: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -163,247 +168,219 @@ class UnifiedAnalyzer:
     async def run_page_speed_analysis(
         self, url: str, strategy: str = "mobile"
     ) -> Dict[str, Any]:
-        """Run PageSpeed analysis with improved error handling for unresponsive sites."""
-        cache_key = f"pagespeed_{url}_{strategy}"
+        """Run PageSpeed analysis for BOTH mobile and desktop following the new ethos."""
+        cache_key = f"pagespeed_{url}_both"
         
         # Check cache first
         if cache_key in self.cache:
             cached_data = self.cache[cache_key]
             if time.time() - cached_data['timestamp'] < self.cache_ttl:
                 log.info(f"📋 Returning cached PageSpeed result for {url}")
+                self.analysis_stats["cache_hits"] += 1
                 return cached_data['data']
         
-        log.info(f"🚀 Starting PageSpeed analysis for {url} with strategy: {strategy}")
+        # Cache miss - increment counter
+        self.analysis_stats["cache_misses"] += 1
+        
+        log.info(f"🚀 Starting PageSpeed analysis for {url} (mobile + desktop)")
         log.info(f"🔑 API Key status: {'SET' if self.google_api_key else 'NOT_SET'}")
+        
+        # Check if circuit breaker is already open - fail fast
+        can_proceed, message = self.rate_limiter.can_make_request('google_pagespeed')
+        if not can_proceed:
+            log.warning(f"🛑 Circuit breaker is OPEN for PageSpeed API: {message}")
+            return {
+                "mobile": None,
+                "desktop": None,
+                "errors": [{
+                    "type": "CIRCUIT_BREAKER_OPEN",
+                    "strategy": "both",
+                    "message": f"Circuit breaker is OPEN: {message}",
+                    "attempt": 0
+                }]
+            }
         
         # Track failure reasons for intelligent retry decisions
         failure_reasons = []
         
-        # Implement intelligent retry logic
-        for attempt in range(self.retry_config['max_attempts']):
-            try:
-                log.info(f"📡 PageSpeed attempt {attempt + 1}/{self.retry_config['max_attempts']} for {url}")
-                
-                categories = ["performance", "accessibility", "best-practices", "seo"]
-                category_params = "&".join([f"category={c}" for c in categories])
-                api_url = (
-                    f"{self.pagespeed_base_url}?url={url}&strategy={strategy}"
-                    f"&{category_params}&prettyPrint=true&key={self.google_api_key}"
-                )
-                
-                log.info(f"🌐 Calling PageSpeed API: {api_url[:100]}...")
+        # Store results for both strategies
+        mobile_result = None
+        desktop_result = None
+        
+        # Analyze both mobile and desktop
+        for strategy_name in ["mobile", "desktop"]:
+            log.info(f"📱 Analyzing {strategy_name} for {url}")
+            
+            # Implement intelligent retry logic for each strategy
+            for attempt in range(self.retry_config['max_attempts']):
+                try:
+                    log.info(f"📡 {strategy_name.capitalize()} attempt {attempt + 1}/{self.retry_config['max_attempts']} for {url}")
+                    
+                    categories = ["performance", "accessibility", "best-practices", "seo"]
+                    category_params = "&".join([f"category={c}" for c in categories])
+                    api_url = (
+                        f"{self.pagespeed_base_url}?url={url}&strategy={strategy_name}"
+                        f"&{category_params}&prettyPrint=true&key={self.google_api_key}"
+                    )
+                    
+                    log.info(f"🌐 Calling PageSpeed API for {strategy_name}: {api_url[:100]}...")
 
-                data = await self.make_request(api_url)
+                    data = await self.make_request(api_url)
 
-                if data.get("error"):
-                    error_msg = data["error"]["message"]
-                    log.error(f"❌ PageSpeed API returned error: {error_msg}")
+                    if data.get("error"):
+                        error_msg = data["error"]["message"]
+                        log.error(f"❌ PageSpeed API returned error for {strategy_name}: {error_msg}")
+                        
+                        # Classify the error for intelligent retry decisions
+                        if "FAILED_DOCUMENT_REQUEST" in error_msg or "net::ERR_TIMED_OUT" in error_msg:
+                            # Site is legitimately down/unresponsive - don't retry
+                            log.warning(f"🌐 Site {url} appears to be down/unresponsive for {strategy_name}. No retry needed.")
+                            failure_reasons.append({
+                                "type": "SITE_UNRESPONSIVE",
+                                "strategy": strategy_name,
+                                "message": error_msg,
+                                "attempt": attempt + 1
+                            })
+                            # Don't count SITE_UNRESPONSIVE against circuit breaker - it's a legitimate failure
+                            break  # Exit retry loop immediately
+                        elif "RATE_LIMIT" in error_msg or "QUOTA_EXCEEDED" in error_msg:
+                            # Rate limit issues - retry with backoff
+                            failure_reasons.append({
+                                "type": "RATE_LIMIT",
+                                "strategy": strategy_name,
+                                "message": error_msg,
+                                "attempt": attempt + 1
+                            })
+                            # Record rate limit failure for circuit breaker
+                            self.rate_limiter.record_request('google_pagespeed', False, failure_type="RATE_LIMIT")
+                            raise RuntimeError(f"Rate limit exceeded: {error_msg}")
+                        else:
+                            # Other API errors - retry with backoff
+                            failure_reasons.append({
+                                "type": "API_ERROR",
+                                "strategy": strategy_name,
+                                "message": error_msg,
+                                "attempt": attempt + 1
+                            })
+                            # Record API error failure for circuit breaker
+                            self.rate_limiter.record_request('google_pagespeed', False, failure_type="API_ERROR")
+                            raise RuntimeError(error_msg)
+
+                    lighthouse = data.get("lighthouseResult", {})
+                    scores = lighthouse.get("categories", {})
+                    audits = lighthouse.get("audits", {})
+
+                    log.info(f"✅ {strategy_name.capitalize()} analysis successful for {url}")
+                    log.info(f"📊 Raw scores from API: {scores}")
+                    
+                    # Calculate scores directly following the new ethos
+                    adjusted_scores = {
+                        "performance": self._calculate_score(scores.get("performance", {}).get("score", 0)),
+                        "accessibility": self._calculate_score(scores.get("accessibility", {}).get("score", 0)),
+                        "seo": self._calculate_score(scores.get("seo", {}).get("score", 0)),
+                    }
+                    
+                    strategy_result = {
+                        "scores": adjusted_scores,
+                        "coreWebVitals": {
+                            "largestContentfulPaint": self.extract_metric(
+                                audits.get("largest-contentful-paint")
+                            ),
+                            "firstInputDelay": self.extract_metric(
+                                audits.get("max-potential-fid") or audits.get("first-input-delay")
+                            ),
+                            "cumulativeLayoutShift": self.extract_metric(
+                                audits.get("cumulative-layout-shift")
+                            ),
+                            "firstContentfulPaint": self.extract_metric(
+                                audits.get("first-contentful-paint")
+                            ),
+                            "speedIndex": self.extract_metric(audits.get("speed-index")),
+                        },
+                        "serverMetrics": {
+                            "serverResponseTime": self.extract_metric(
+                                audits.get("server-response-time")
+                            ),
+                            "totalBlockingTime": self.extract_metric(
+                                audits.get("total-blocking-time")
+                            ),
+                            "timeToInteractive": self.extract_metric(audits.get("interactive")),
+                        },
+                        "mobileUsability": self.analyze_mobile_usability_from_pagespeed(audits) if strategy_name == "mobile" else None,
+                        "opportunities": self.extract_opportunities(audits),
+                    }
+                    
+                    # Store the result for this strategy
+                    if strategy_name == "mobile":
+                        mobile_result = strategy_result
+                    else:
+                        desktop_result = strategy_result
+                    
+                    # Success - break out of retry loop for this strategy
+                    break
+                    
+                except Exception as e:
+                    log.warning(f"❌ {strategy_name.capitalize()} attempt {attempt + 1} failed for {url}: {e}")
                     
                     # Classify the error for intelligent retry decisions
-                    if "FAILED_DOCUMENT_REQUEST" in error_msg or "net::ERR_TIMED_OUT" in error_msg:
-                        # Site is legitimately down/unresponsive - don't retry
-                        log.warning(f"🌐 Site {url} appears to be down/unresponsive. No retry needed.")
+                    error_type = "UNKNOWN_ERROR"
+                    if "ConnectionError" in str(e) or "Max retries exceeded" in str(e):
+                        error_type = "NETWORK_ERROR"
+                        log.warning(f"🌐 Network connection error for {url} {strategy_name} - will retry")
+                        # Record network error for circuit breaker
+                        self.rate_limiter.record_request('google_pagespeed', False, failure_type="NETWORK_ERROR")
+                    elif "SITE_UNRESPONSIVE" in str(e):
+                        log.warning(f"🛑 Stopping retries for {url} {strategy_name} - permanent failure")
+                        break
+                    elif "Rate limit exceeded" in str(e):
+                        error_type = "RATE_LIMIT"
+                        log.warning(f"⏱️ Rate limit exceeded for {url} {strategy_name} - will retry with backoff")
+                        # Rate limit already recorded above
+                    elif "Circuit breaker is OPEN" in str(e):
+                        log.warning(f"🛑 Circuit breaker is OPEN for {url} {strategy_name} - stopping retries")
                         failure_reasons.append({
-                            "type": "SITE_UNRESPONSIVE",
-                            "message": error_msg,
+                            "type": "CIRCUIT_BREAKER_OPEN",
+                            "strategy": strategy_name,
+                            "message": str(e),
                             "attempt": attempt + 1
                         })
-                        # Record as failure but don't count against circuit breaker
-                        self.rate_limiter.record_request('google_pagespeed', False, failure_type="SITE_UNRESPONSIVE")
-                        break  # Exit retry loop immediately
-                    elif "RATE_LIMIT" in error_msg or "QUOTA_EXCEEDED" in error_msg:
-                        # Rate limit issues - retry with backoff
-                        failure_reasons.append({
-                            "type": "RATE_LIMIT",
-                            "message": error_msg,
-                            "attempt": attempt + 1
-                        })
-                        self.rate_limiter.record_request('google_pagespeed', False, failure_type="RATE_LIMIT")
-                        raise RuntimeError(f"Rate limit exceeded: {error_msg}")
+                        break  # Don't retry when circuit breaker is open
                     else:
-                        # Other API errors - retry with backoff
-                        failure_reasons.append({
-                            "type": "API_ERROR",
-                            "message": error_msg,
-                            "attempt": attempt + 1
-                        })
-                        self.rate_limiter.record_request('google_pagespeed', False, failure_type="API_ERROR")
-                        raise RuntimeError(error_msg)
-
-                lighthouse = data.get("lighthouseResult", {})
-                scores = lighthouse.get("categories", {})
-                audits = lighthouse.get("audits", {})
-
-                log.info(f"✅ PageSpeed analysis successful for {url}")
-                log.info(f"📊 Raw scores from API: {scores}")
-                log.info(f"📊 Available score categories: {list(scores.keys())}")
-                log.info(f"📊 Audits available: {list(audits.keys())[:10]}...")  # First 10 audit keys
-                
-                # Calculate scores directly
-                adjusted_scores = {
-                    "performance": self._calculate_score(scores.get("performance", {}).get("score", 0)),
-                    "accessibility": self._calculate_score(scores.get("accessibility", {}).get("score", 0)),
-                    "bestPractices": self._calculate_score(scores.get("best-practices", {}).get("score", 0)),
-                    "seo": self._calculate_score(scores.get("seo", {}).get("score", 0)),
-                }
-                
-                result = {
-                    "scores": adjusted_scores,
-                    "coreWebVitals": {
-                        "largestContentfulPaint": self.extract_metric(
-                            audits.get("largest-contentful-paint")
-                        ),
-                        "firstInputDelay": self.extract_metric(
-                            audits.get("max-potential-fid") or audits.get("first-input-delay")
-                        ),
-                        "cumulativeLayoutShift": self.extract_metric(
-                            audits.get("cumulative-layout-shift")
-                        ),
-                        "firstContentfulPaint": self.extract_metric(
-                            audits.get("first-contentful-paint")
-                        ),
-                        "speedIndex": self.extract_metric(audits.get("speed-index")),
-                    },
-                    "serverMetrics": {
-                        "serverResponseTime": self.extract_metric(
-                            audits.get("server-response-time")
-                        ),
-                        "totalBlockingTime": self.extract_metric(
-                            audits.get("total-blocking-time")
-                        ),
-                        "timeToInteractive": self.extract_metric(audits.get("interactive")),
-                    },
-                    "mobileUsability": self.analyze_mobile_usability_from_pagespeed(audits),
-                    "opportunities": self.extract_opportunities(audits),
-                }
-                
-                # Cache successful result
-                self.cache[cache_key] = {
-                    'data': result,
-                    'timestamp': time.time()
-                }
-                
-                # Clean up old cache entries
-                self._cleanup_cache()
-                
-                return result
-                
-            except Exception as e:
-                log.warning(f"❌ PageSpeed attempt {attempt + 1} failed for {url}: {e}")
-                log.warning(f"🔍 Error type: {type(e).__name__}")
-                log.warning(f"📋 Error details: {str(e)}")
-                
-                # Classify the error for intelligent retry decisions
-                error_type = "UNKNOWN_ERROR"
-                if "ConnectionError" in str(e) or "Max retries exceeded" in str(e):
-                    error_type = "NETWORK_ERROR"
-                    log.warning(f"🌐 Network connection error for {url} - will retry")
-                elif "SITE_UNRESPONSIVE" in str(e) or "Rate limit exceeded: Circuit breaker is OPEN" in str(e):
-                    log.warning(f"🛑 Stopping retries for {url} due to permanent failure or circuit breaker")
-                    break
-                elif "Rate limit exceeded" in str(e):
-                    error_type = "RATE_LIMIT"
-                    log.warning(f"⏱️ Rate limit exceeded for {url} - will retry with backoff")
-                
-                # Record the failure with appropriate type
-                if error_type == "NETWORK_ERROR":
-                    self.rate_limiter.record_request('google_pagespeed', False, failure_type="NETWORK_ERROR")
-                elif error_type == "RATE_LIMIT":
-                    self.rate_limiter.record_request('google_pagespeed', False, failure_type="RATE_LIMIT")
-                else:
-                    self.rate_limiter.record_request('google_pagespeed', False, failure_type="API_ERROR")
-                
-                if attempt == self.retry_config['max_attempts'] - 1:
-                    log.error(f"💥 All PageSpeed attempts failed for {url}. Final error: {e}")
-                    break
-                
-                # Calculate delay with exponential backoff
-                delay = min(
-                    self.retry_config['base_delay'] * (2 ** attempt),
-                    self.retry_config['max_delay']
-                )
-                log.info(f"🔄 Retrying PageSpeed for {url} in {delay}s (attempt {attempt + 2})")
-                await asyncio.sleep(delay)
+                        # Record unknown error for circuit breaker
+                        self.rate_limiter.record_request('google_pagespeed', False, failure_type="UNKNOWN_ERROR")
+                    
+                    if attempt == self.retry_config['max_attempts'] - 1:
+                        log.error(f"💥 All {strategy_name} attempts failed for {url}. Final error: {e}")
+                        break
+                    
+                    # Calculate delay with exponential backoff
+                    delay = min(
+                        self.retry_config['base_delay'] * (2 ** attempt),
+                        self.retry_config['max_delay']
+                    )
+                    log.info(f"🔄 Retrying {strategy_name} for {url} in {delay}s (attempt {attempt + 2})")
+                    await asyncio.sleep(delay)
         
-        # If we get here, all attempts failed - return fallback scores
-        log.warning(f"🔄 Using fallback scoring for {url} due to PageSpeed failures")
-        return self._generate_fallback_scores(url, failure_reasons)
-
-    def _generate_fallback_scores(self, url: str, failure_reasons: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Generate intelligent fallback scores based on failure reasons."""
-        log.info(f"🔄 Generating fallback scores for {url}")
-        log.info(f"📋 Failure reasons: {failure_reasons}")
-        
-        # Analyze failure patterns to determine appropriate fallback scores
-        has_site_unresponsive = any(r.get("type") == "SITE_UNRESPONSIVE" for r in failure_reasons)
-        has_rate_limit = any(r.get("type") == "RATE_LIMIT" for r in failure_reasons)
-        has_network_error = any(r.get("type") == "NETWORK_ERROR" for r in failure_reasons)
-        has_api_error = any(r.get("type") == "API_ERROR" for r in failure_reasons)
-        
-        if has_site_unresponsive:
-            # Site is legitimately down - give very low scores
-            log.info(f"🌐 Site {url} is unresponsive - assigning minimal scores")
-            fallback_scores = {
-                "performance": 5,      # Very low - site doesn't load
-                "accessibility": 5,    # Very low - can't access
-                "bestPractices": 5,   # Very low - no content to analyze
-                "seo": 5,             # Very low - no content to index
-            }
-        elif has_network_error:
-            # Network connectivity issues - give moderate scores
-            log.info(f"🌐 Network error for {url} - assigning moderate fallback scores")
-            fallback_scores = {
-                "performance": 40,     # Moderate - network issue, not site issue
-                "accessibility": 40,   # Moderate - network issue, not site issue
-                "bestPractices": 40,  # Moderate - network issue, not site issue
-                "seo": 40,            # Moderate - network issue, not site issue
-            }
-        elif has_rate_limit:
-            # Rate limit exceeded - give moderate scores as fallback
-            log.info(f"⏱️ Rate limit exceeded for {url} - assigning moderate fallback scores")
-            fallback_scores = {
-                "performance": 50,     # Moderate - unknown performance
-                "accessibility": 50,   # Moderate - unknown accessibility
-                "bestPractices": 50,  # Moderate - unknown best practices
-                "seo": 50,            # Moderate - unknown SEO
-            }
-        else:
-            # Other API errors - give low-moderate scores
-            log.info(f"🔌 API error for {url} - assigning low-moderate fallback scores")
-            fallback_scores = {
-                "performance": 30,     # Low - API failure
-                "accessibility": 30,   # Low - API failure
-                "bestPractices": 30,  # Low - API failure
-                "seo": 30,            # Low - API failure
-            }
-        
-        # Generate fallback response structure
-        fallback_result = {
-            "scores": fallback_scores,
-            "coreWebVitals": {
-                "largestContentfulPaint": None,
-                "firstInputDelay": None,
-                "cumulativeLayoutShift": None,
-                "firstContentfulPaint": None,
-                "speedIndex": None,
-            },
-            "serverMetrics": {
-                "serverResponseTime": None,
-                "totalBlockingTime": None,
-                "timeToInteractive": None,
-            },
-            "mobileUsability": {},
-            "opportunities": [],
-            "fallback_reason": {
-                "primary_reason": failure_reasons[0].get("type") if failure_reasons else "UNKNOWN_ERROR",
-                "all_reasons": failure_reasons,
-                "fallback_scores_used": True,
-                "timestamp": time.time()
-            }
+        # Build the final result following the new ethos structure
+        result = {
+            "mobile": mobile_result,
+            "desktop": desktop_result,
+            "errors": failure_reasons
         }
         
-        log.info(f"✅ Generated fallback scores for {url}: {fallback_scores}")
-        return fallback_result
+        # Cache successful result
+        self.cache[cache_key] = {
+            'data': result,
+            'timestamp': time.time()
+        }
+        
+        # Clean up old cache entries
+        self._cleanup_cache()
+        
+        log.info(f"✅ PageSpeed analysis completed for {url} (mobile: {'✅' if mobile_result else '❌'}, desktop: {'✅' if desktop_result else '❌'})")
+        return result
+
+
 
 
 
@@ -437,6 +414,24 @@ class UnifiedAnalyzer:
             log.warning(f"⚠️ Error calculating score from {raw_score}: {e}")
             return 0
 
+    def _get_empty_core_web_vitals(self) -> Dict[str, None]:
+        """Get empty core web vitals structure."""
+        return {
+            "largestContentfulPaint": None,
+            "firstInputDelay": None,
+            "cumulativeLayoutShift": None,
+            "firstContentfulPaint": None,
+            "speedIndex": None,
+        }
+    
+    def _get_empty_server_metrics(self) -> Dict[str, None]:
+        """Get empty server metrics structure."""
+        return {
+            "serverResponseTime": None,
+            "totalBlockingTime": None,
+            "timeToInteractive": None,
+        }
+    
     # ------------------------------------------------------------------ #
     def analyze_mobile_usability_from_pagespeed(
         self, audits: Dict[str, Any]
@@ -479,44 +474,7 @@ class UnifiedAnalyzer:
 
 
 
-    # ------------------------------------------------------------------ #
-    async def analyze_uptime(self, url: str) -> Dict[str, Any]:
-        try:
-            results = []
-            for i in range(3):
-                start = asyncio.get_event_loop().time()
-                try:
-                    requests.get(url, timeout=10)
-                    elapsed = int((asyncio.get_event_loop().time() - start) * 1000)
-                    results.append({"success": True, "responseTime": elapsed})
-                except Exception:
-                    results.append({"success": False, "responseTime": 10_000})
 
-                if i < 2:
-                    await asyncio.sleep(1)
-
-            success_count = sum(r["success"] for r in results)
-            avg_time = sum(r["responseTime"] for r in results) / len(results)
-            uptime = (success_count / len(results)) * 100
-
-            score = 100
-            if uptime < 100:
-                score -= (100 - uptime) * 2
-            if avg_time > 3000:
-                score -= 20
-            elif avg_time > 1000:
-                score -= 10
-
-            return {
-                "score": max(0, round(score)),
-                "uptime": f"{uptime:.1f}%",
-                "averageResponseTime": round(avg_time),
-                "status": "up" if uptime > 66 else "down",
-                "realData": True,
-            }
-
-        except Exception as e:
-            raise RuntimeError(f"Uptime analysis error: {e}") from e
 
     # ------------------------------------------------------------------ #
     # NEW ENHANCED FEATURES
@@ -620,27 +578,25 @@ class UnifiedAnalyzer:
             if start_time is None:
                 start_time = time.time()
             
-            # Count errors from each service
-            if result.get("pageSpeed", {}).get("errors"):
-                total_errors += len(result["pageSpeed"]["errors"])
+            # Count errors from each service - handle None values safely
+            page_speed = result.get("pageSpeed")
+            if page_speed and isinstance(page_speed, dict) and page_speed.get("errors"):
+                total_errors += len(page_speed["errors"])
             
-            if result.get("whois", {}).get("errors"):
-                total_errors += len(result["whois"]["errors"])
+            whois = result.get("whois")
+            if whois and isinstance(whois, dict) and whois.get("errors"):
+                total_errors += len(whois["errors"])
             
-            if result.get("trustAndCRO", {}).get("errors"):
-                total_errors += len(result["trustAndCRO"]["errors"])
+            trust_cro = result.get("trustAndCRO")
+            if trust_cro and isinstance(trust_cro, dict) and trust_cro.get("errors"):
+                total_errors += len(trust_cro["errors"])
             
-            if result.get("uptime", {}).get("errors"):
-                total_errors += len(result["uptime"]["errors"])
-            
-            # Count completed services
-            if result.get("pageSpeed"):
+            # Count completed services - handle None values safely
+            if page_speed and isinstance(page_speed, dict):
                 services_completed += 1
-            if result.get("whois"):
+            if whois and isinstance(whois, dict):
                 services_completed += 1
-            if result.get("trustAndCRO"):
-                services_completed += 1
-            if result.get("uptime"):
+            if trust_cro and isinstance(trust_cro, dict):
                 services_completed += 1
             
             # Calculate analysis duration if start_time is available
@@ -716,7 +672,6 @@ class UnifiedAnalyzer:
                         "pageSpeed": None,
                         "whois": None,
                         "trustAndCRO": None,
-                        "uptime": None,
                         "summary": {
                             "totalErrors": 1,
                             "servicesCompleted": 0,
@@ -740,7 +695,6 @@ class UnifiedAnalyzer:
                     "pageSpeed": None,
                     "whois": None,
                     "trustAndCRO": None,
-                    "uptime": None,
                     "summary": {
                         "totalErrors": 1,
                         "servicesCompleted": 0,
@@ -792,20 +746,19 @@ class UnifiedAnalyzer:
                 "pageSpeed": None,
                 "whois": None,
                 "trustAndCRO": None,
-                "uptime": None,
                 "summary": None
             }
             
-            # 1. PageSpeed Analysis (keep existing working system)
+            # 1. PageSpeed Analysis (now returns both mobile and desktop)
             try:
                 pagespeed_result = await self.run_page_speed_analysis(url, strategy)
                 result["pageSpeed"] = {
                     "domain": domain,
                     "url": url,
                     "timestamp": datetime.now().isoformat(),
-                    "mobile": pagespeed_result if strategy == "mobile" else None,
-                    "desktop": pagespeed_result if strategy == "desktop" else None,
-                    "errors": []
+                    "mobile": pagespeed_result.get("mobile"),
+                    "desktop": pagespeed_result.get("desktop"),
+                    "errors": pagespeed_result.get("errors", [])
                 }
                 log.info(f"✅ PageSpeed analysis completed for {url}")
             except Exception as e:
@@ -836,39 +789,78 @@ class UnifiedAnalyzer:
                     "errors": [f"WHOIS lookup failed: {e}"]
                 }
             
-            # 3. Trust and CRO Analysis (placeholder - method not implemented)
-            result["trustAndCRO"] = {
-                "domain": domain,
-                "url": url,
-                "timestamp": datetime.now().isoformat(),
-                "trust": None,
-                "cro": None,
-                "errors": ["Trust/CRO analysis not implemented"]
-            }
-            
-            # 4. Uptime Analysis (keep existing working system)
+            # 3. Trust and CRO Analysis (implemented using available data)
             try:
-                uptime_result = await self.analyze_uptime(url)
-                result["uptime"] = {
+                # Calculate Trust score based on domain credibility and WHOIS data
+                trust_score = 0
+                if result.get("whois") and result["whois"].get("credibility"):
+                    trust_score = min(100, result["whois"]["credibility"])
+                elif result.get("whois") and result["whois"].get("whois"):
+                    # Fallback: basic trust scoring based on WHOIS data
+                    whois_data = result["whois"]["whois"]
+                    if whois_data and isinstance(whois_data, dict):
+                        # Score based on registration status, registrar, etc.
+                        if whois_data.get("status") and "expired" not in str(whois_data["status"]).lower():
+                            trust_score += 30
+                        if whois_data.get("registrar") and whois_data["registrar"] != "Unknown":
+                            trust_score += 20
+                        if whois_data.get("nameServers") and len(whois_data["nameServers"]) >= 2:
+                            trust_score += 25
+                        if result.get("whois", {}).get("domainAge", {}).get("years", 0) >= 2:
+                            trust_score += 25
+                
+                # Calculate CRO score based on PageSpeed performance and accessibility
+                cro_score = 0
+                if result.get("pageSpeed", {}).get("mobile"):
+                    mobile = result["pageSpeed"]["mobile"]
+                    if mobile and "scores" in mobile:
+                        scores = mobile["scores"]
+                        # CRO score based on performance, accessibility, and SEO
+                        performance = scores.get("performance", 0)
+                        accessibility = scores.get("accessibility", 0)
+                        seo = scores.get("seo", 0)
+                        
+                        # Weighted average: Performance (40%), Accessibility (30%), SEO (30%)
+                        if performance is not None and accessibility is not None and seo is not None:
+                            cro_score = int((performance * 0.4) + (accessibility * 0.3) + (seo * 0.3))
+                
+                result["trustAndCRO"] = {
                     "domain": domain,
                     "url": url,
                     "timestamp": datetime.now().isoformat(),
-                    "uptime": {
-                        "rawResponse": uptime_result,
-                        "parsed": uptime_result
+                "trust": {
+                        "rawResponse": {"score": trust_score},
+                        "parsed": {"score": trust_score},
+                        "errors": []
+                },
+                "cro": {
+                        "rawResponse": {"score": cro_score},
+                        "parsed": {"score": cro_score},
+                        "errors": []
                     },
                     "errors": []
                 }
-                log.info(f"✅ Uptime analysis completed for {url}")
+                log.info(f"✅ Trust and CRO analysis completed for {url} - Trust: {trust_score}, CRO: {cro_score}")
             except Exception as e:
-                log.warning(f"Uptime analysis failed for {url}: {e}")
-                result["uptime"] = {
+                log.warning(f"Trust and CRO analysis failed for {url}: {e}")
+                result["trustAndCRO"] = {
                     "domain": domain,
                     "url": url,
                     "timestamp": datetime.now().isoformat(),
-                    "uptime": None,
-                    "errors": [f"Uptime analysis failed: {e}"]
-                }
+                    "trust": {
+                        "rawResponse": {"score": 0},
+                        "parsed": {"score": 0},
+                        "errors": [f"Trust analysis failed: {e}"]
+                    },
+                    "cro": {
+                        "rawResponse": {"score": 0},
+                        "parsed": {"score": 0},
+                        "errors": [f"CRO analysis failed: {e}"]
+                    },
+                    "errors": [f"Trust/CRO analysis failed: {e}"]
+            }
+            
+
             
             # 5. Domain insights integration (simplified)
             try:
@@ -897,6 +889,13 @@ class UnifiedAnalyzer:
             # 6. Calculate summary following whoispageSpeed.md structure
             result["summary"] = self._calculate_summary(result, start_time)
             
+            # Update analysis statistics
+            self.analysis_stats["total_analyses"] += 1
+            if result["summary"]["servicesCompleted"] > 0:
+                self.analysis_stats["successful_analyses"] += 1
+            else:
+                self.analysis_stats["failed_analyses"] += 1
+            
             # Record successful request
             self.rate_limiter.record_request('comprehensive_speed', True)
             
@@ -904,6 +903,10 @@ class UnifiedAnalyzer:
             return result
             
         except Exception as e:
+            # Update analysis statistics for failed analysis
+            self.analysis_stats["total_analyses"] += 1
+            self.analysis_stats["failed_analyses"] += 1
+            
             # Record failed request
             self.rate_limiter.record_request('comprehensive_speed', False)
             
@@ -938,13 +941,7 @@ class UnifiedAnalyzer:
                     "cro": None,
                     "errors": [f"Analysis failed: {str(e)}"]
                 },
-                "uptime": {
-                    "domain": urlparse(url).hostname,
-                    "url": url,
-                    "timestamp": datetime.now().isoformat(),
-                    "uptime": None,
-                    "errors": [f"Analysis failed: {str(e)}"]
-                },
+
                 "summary": {
                     "totalErrors": 1,
                     "servicesCompleted": 0,
@@ -993,4 +990,120 @@ class UnifiedAnalyzer:
                 ) * 100
             },
             "retry_config": self.retry_config.copy()
+        }
+    
+    # --- New Ethos: Score Extraction Methods ---
+    
+    def _get_mobile_score(self, analysis_result: Dict[str, Any], key: str) -> Optional[int]:
+        """Prefer mobile score, fallback to desktop.
+        
+        Args:
+            analysis_result: The analysis result dictionary
+            key: The score key to look up (e.g., "performance", "accessibility", "seo")
+            
+        Returns:
+            The score as an int if found, otherwise None
+        """
+        # Check if we have PageSpeed data
+        if "pageSpeed" not in analysis_result:
+            return None
+        
+        # Prefer mobile, fallback to desktop
+        mobile = analysis_result["pageSpeed"].get("mobile")
+        desktop = analysis_result["pageSpeed"].get("desktop")
+        
+        for src in (mobile, desktop):
+            if src and "scores" in src and key in src["scores"]:
+                score = src["scores"][key]
+                if score is not None:
+                    return int(score)
+        
+        return None
+    
+    def _get_trust_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
+        """Get the trust score from the analysis result."""
+        trust_and_cro = analysis_result.get("trustAndCRO")
+        if not trust_and_cro or not isinstance(trust_and_cro, dict):
+            return None
+        
+        trust = trust_and_cro.get("trust")
+        if trust and isinstance(trust, dict) and trust.get("parsed"):
+            try:
+                score = trust["parsed"]["score"]
+                if score is not None:
+                    return int(score)
+            except (ValueError, TypeError, KeyError):
+                pass
+        return None
+    
+    def _get_cro_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
+        """Get the CRO score from the analysis result."""
+        trust_and_cro = analysis_result.get("trustAndCRO")
+        if not trust_and_cro or not isinstance(trust_and_cro, dict):
+            return None
+        
+        cro = trust_and_cro.get("cro")
+        if cro and isinstance(cro, dict) and cro.get("parsed"):
+            try:
+                score = cro["parsed"]["score"]
+                if score is not None:
+                    return int(score)
+            except (ValueError, TypeError, KeyError):
+                pass
+        return None
+    
+
+    
+    # --- Public KPI Properties ---
+    
+    def get_performance_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get performance score with mobile preference."""
+        return self._get_mobile_score(analysis_result, "performance") or 0
+    
+    def get_accessibility_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get accessibility score with mobile preference."""
+        return self._get_mobile_score(analysis_result, "accessibility") or 0
+    
+    def get_seo_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get SEO score with mobile preference."""
+        return self._get_mobile_score(analysis_result, "seo") or 0
+    
+    def get_best_practices_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get best practices score with mobile preference (legacy support)."""
+        # Note: bestPractices is deprecated, use trust and cro scores instead
+        return 0  # Return 0 since bestPractices is no longer part of the new KPI structure
+    
+    def get_trust_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get trust score."""
+        return self._get_trust_score(analysis_result) or 0
+    
+    def get_cro_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get CRO score."""
+        return self._get_cro_score(analysis_result) or 0
+    
+
+    
+    def get_overall_score(self, analysis_result: Dict[str, Any]) -> float:
+        """Calculate overall score from all five categories including Trust and CRO as real zeros."""
+        values = [
+            self.get_performance_score(analysis_result),
+            self.get_accessibility_score(analysis_result),
+            self.get_seo_score(analysis_result),
+            self.get_trust_score(analysis_result),
+            self.get_cro_score(analysis_result)
+        ]
+        # Include all five categories - Trust and CRO are treated as real zeros, not excluded
+        # This ensures we always have 5 values to average
+        total_score = sum(values)
+        return round(total_score / 5.0, 2)
+    
+    def get_scores_summary(self, analysis_result: Dict[str, Any]) -> Dict[str, Union[int, float]]:
+        """Get comprehensive scores summary."""
+        return {
+            "Performance": self.get_performance_score(analysis_result),
+            "Accessibility": self.get_accessibility_score(analysis_result),
+            "SEO": self.get_seo_score(analysis_result),
+            "Trust": self.get_trust_score(analysis_result),
+            "CRO": self.get_cro_score(analysis_result),
+            "Overall": self.get_overall_score(analysis_result)
         }

@@ -26,8 +26,9 @@ class WebsiteScore(BaseModel):
     
     performance: float = Field(..., ge=0, le=100, description="Performance score (0-100)")
     accessibility: float = Field(..., ge=0, le=100, description="Accessibility score (0-100)")
-    best_practices: float = Field(..., ge=0, le=100, description="Best practices score (0-100)")
     seo: float = Field(..., ge=0, le=100, description="SEO score (0-100)")
+    trust: float = Field(..., ge=0, le=100, description="Trust signal score (0-100)")
+    cro: float = Field(..., ge=0, le=100, description="Conversion optimization score (0-100)")
     overall: float = Field(..., ge=0, le=100, description="Overall weighted score (0-100)")
     
     @field_validator('overall')
@@ -305,8 +306,9 @@ class AuditThresholds(BaseModel):
     
     performance_min: float = Field(70.0, ge=0, le=100, description="Minimum acceptable performance score")
     accessibility_min: float = Field(80.0, ge=0, le=100, description="Minimum acceptable accessibility score")
-    best_practices_min: float = Field(80.0, ge=0, le=100, description="Minimum acceptable best practices score")
     seo_min: float = Field(80.0, ge=0, le=100, description="Minimum acceptable SEO score")
+    trust_min: float = Field(70.0, ge=0, le=100, description="Minimum acceptable trust score")
+    cro_min: float = Field(70.0, ge=0, le=100, description="Minimum acceptable CRO score")
     overall_min: float = Field(75.0, ge=0, le=100, description="Minimum acceptable overall score")
     
     @field_validator('overall_min')
@@ -316,8 +318,9 @@ class AuditThresholds(BaseModel):
         category_thresholds = [
             info.data.get('performance_min', 70),
             info.data.get('accessibility_min', 80),
-            info.data.get('best_practices_min', 80),
-            info.data.get('seo_min', 80)
+            info.data.get('seo_min', 80),
+            info.data.get('trust_min', 70),
+            info.data.get('cro_min', 70)
         ]
         min_category = min(category_thresholds)
         if v > min_category:
@@ -362,7 +365,8 @@ class IssueCategory(str, Enum):
     PERFORMANCE = "performance"
     ACCESSIBILITY = "accessibility"
     SEO = "seo"
-    BEST_PRACTICES = "best_practices"
+    TRUST = "trust"
+    CRO = "cro"
     TECHNICAL = "technical"
     CONTENT = "content"
     MOBILE = "mobile"

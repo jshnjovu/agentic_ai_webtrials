@@ -67,29 +67,43 @@ async def run_pagespeed_audit(
         if is_fallback:
             logger.warning(f"⚠️ Using fallback scores for {request.website_url}")
         
-        # Extract scores from analysis result
-        scores_data = analysis_result.get("scores", {})
+        # Extract scores from analysis result - handle the new mobile/desktop structure
+        # The unified analyzer returns {mobile: {...}, desktop: {...}, errors: [...]}
+        mobile_data = analysis_result.get("mobile", {})
+        desktop_data = analysis_result.get("desktop", {})
+        
+        # Prefer mobile scores, fallback to desktop (following the new ethos)
+        scores_data = mobile_data.get("scores", {}) if mobile_data else desktop_data.get("scores", {})
+        
+        # For now, set trust and CRO to 0 since they're not provided by PageSpeed
+        # These will be populated by separate trust/CRO analysis services
+        trust_score = 0
+        cro_score = 0
         
         # Create WebsiteScore object with proper field mapping
         website_scores = WebsiteScore(
             performance=scores_data.get("performance", 0),
             accessibility=scores_data.get("accessibility", 0),
-            best_practices=scores_data.get("bestPractices", 0),  # Note: unified uses camelCase
             seo=scores_data.get("seo", 0),
+            trust=trust_score,
+            cro=cro_score,
             overall=round(sum([
                 scores_data.get("performance", 0),
                 scores_data.get("accessibility", 0),
-                scores_data.get("bestPractices", 0),
-                scores_data.get("seo", 0)
-            ]) / 4)  # Calculate overall as average
+                scores_data.get("seo", 0),
+                trust_score,
+                cro_score
+            ]) / 5)  # Calculate overall as average of 5 metrics
         )
         
         # Validate scores and log any anomalies
         _validate_and_log_scores(website_scores, request.website_url)
         
-        # Extract and map core web vitals
-        core_web_vitals_data = analysis_result.get("coreWebVitals", {})
-        server_metrics_data = analysis_result.get("serverMetrics", {})
+        # Extract and map core web vitals from the mobile/desktop data
+        # Prefer mobile data, fallback to desktop
+        source_data = mobile_data if mobile_data else desktop_data
+        core_web_vitals_data = source_data.get("coreWebVitals", {})
+        server_metrics_data = source_data.get("serverMetrics", {})
         
         # Create response with proper schema mapping
         response = PageSpeedAuditResponse(
@@ -138,16 +152,16 @@ def _validate_and_log_scores(scores: WebsiteScore, website_url: str):
     """Validate scores and log any anomalies for debugging."""
     try:
         # Check for extreme scores that might indicate calculation errors
-        if any(score == 100 for score in [scores.performance, scores.accessibility, scores.best_practices, scores.seo]):
+        if any(score == 100 for score in [scores.performance, scores.accessibility, scores.seo, scores.trust, scores.cro]):
             logger.warning(f"⚠️ Perfect scores detected for {website_url} - verify calculation accuracy")
         
         # Check for very low scores that might indicate issues
-        low_scores = [score for score in [scores.performance, scores.accessibility, scores.best_practices, scores.seo] if score <= 10]
+        low_scores = [score for score in [scores.performance, scores.accessibility, scores.seo, scores.trust, scores.cro] if score <= 10]
         if low_scores:
             logger.info(f"📊 Very low scores for {website_url}: {low_scores}")
         
         # Log overall score calculation
-        expected_overall = round(sum([scores.performance, scores.accessibility, scores.best_practices, scores.seo]) / 4)
+        expected_overall = round(sum([scores.performance, scores.accessibility, scores.seo, scores.trust, scores.cro]) / 5)
         if expected_overall != scores.overall:
             logger.warning(f"⚠️ Score calculation mismatch for {website_url}: expected {expected_overall}, got {scores.overall}")
         
@@ -219,16 +233,24 @@ async def get_pagespeed_summary(
     try:
         # For now, return a placeholder summary since we don't have audit history
         # In a real implementation, you would query a database for historical results
+        # Create a default WebsiteScore for the summary
+        default_scores = WebsiteScore(
+            performance=0,
+            accessibility=0,
+            seo=0,
+            trust=0,
+            cro=0,
+            overall=0
+        )
+        
         summary = WebsiteScoringSummary(
             business_id=business_id,
             total_audits=0,
-            average_performance_score=0,
-            average_accessibility_score=0,
-            average_best_practices_score=0,
-            average_seo_score=0,
-            last_audit_date=None,
-            confidence_level=ConfidenceLevel.LOW,
-            audit_strategy="mobile"  # Use string value instead of enum
+            successful_audits=0,
+            failed_audits=0,
+            average_scores=default_scores,
+            latest_audit=None,
+            audit_history=[]
         )
         
         return summary
@@ -253,7 +275,7 @@ async def run_comprehensive_analysis(
         analyzer: Unified analyzer instance
         
     Returns:
-        Comprehensive analysis results
+        Comprehensive analysis results with calculated Overall score
     """
     try:
         url = request.get("website_url")
@@ -264,6 +286,16 @@ async def run_comprehensive_analysis(
         
         # Run comprehensive analysis using unified analyzer
         result = await analyzer.run_comprehensive_analysis(url, strategy)
+        
+        # Add the calculated Overall score from unified.py
+        if result and not result.get("error"):
+            try:
+                overall_score = analyzer.get_overall_score(result)
+                result["overall_score"] = overall_score
+                logger.info(f"✅ Added calculated Overall score: {overall_score} for {url}")
+            except Exception as score_error:
+                logger.warning(f"⚠️ Could not calculate Overall score for {url}: {score_error}")
+                result["overall_score"] = None
         
         return result
         
