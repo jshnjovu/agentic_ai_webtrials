@@ -83,3 +83,4 @@ frontend_urls.md
 .bmad-infrastructure-devops/
 temp_pics/
 .vercel
+backend/env.example
