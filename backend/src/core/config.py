@@ -113,8 +113,8 @@ class APIConfig(BaseSettings):
     HEURISTICS_EVALUATION_TIMEOUT_SECONDS: int = 30
     
     # Circuit Breaker Configuration
-    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
-    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 60
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 15  # Increased from 5 to 15
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 30   # Reduced from 60 to 30 seconds
     
     # Add model configuration to load environment variables
     model_config = ConfigDict(

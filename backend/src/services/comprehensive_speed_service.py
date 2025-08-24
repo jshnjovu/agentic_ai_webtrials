@@ -5,6 +5,7 @@ Based on best practices from temp_place_z implementation.
 """
 
 import time
+import asyncio
 import logging
 from typing import Dict, Any, Optional, List
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -13,6 +14,7 @@ from src.core.base_service import BaseService
 from src.core.config import get_api_config
 from src.services.rate_limiter import RateLimiter
 from src.services.unified import UnifiedAnalyzer
+from src.services.batch_processor import BatchProcessor, BatchJobConfig, JobPriority
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +30,37 @@ class ComprehensiveSpeedService(BaseService):
         # Initialize unified analyzer service
         self.unified_analyzer = UnifiedAnalyzer()
         
+        # Initialize batch processor service
+        self.batch_processor = BatchProcessor()
+        
         # Analysis configuration
         self.analysis_timeout = self.api_config.COMPREHENSIVE_ANALYSIS_TIMEOUT_SECONDS
         
         # Service health tracking
         self.service_health = {
             "unified": "unknown",
+            "batch_processor": "unknown",
             "overall": "unknown"
         }
     
+    async def reset_rate_limiter(self, api_name: str = "comprehensive_speed") -> bool:
+        """Reset rate limiter and circuit breaker for testing purposes."""
+        try:
+            self.rate_limiter.reset_circuit_breaker(api_name)
+            logger.info(f"Reset rate limiter for {api_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to reset rate limiter for {api_name}: {e}")
+            return False
+    
+    async def get_rate_limiter_status(self, api_name: str = "comprehensive_speed") -> Optional[Dict[str, Any]]:
+        """Get current rate limiter status for monitoring."""
+        try:
+            return self.rate_limiter.get_circuit_breaker_status(api_name)
+        except Exception as e:
+            logger.error(f"Failed to get rate limiter status for {api_name}: {e}")
+            return None
+
     def validate_input(self, data: Any) -> bool:
         """Validate input data for comprehensive analysis."""
         if not isinstance(data, dict):
@@ -300,6 +324,80 @@ class ComprehensiveSpeedService(BaseService):
         
         return processed_results
     
+    async def start_batch_analysis(
+        self,
+        urls: List[str],
+        business_ids: Optional[List[str]] = None,
+        run_id: Optional[str] = None,
+        batch_size: int = 5,
+        priority: JobPriority = JobPriority.NORMAL,
+        timeout_seconds: int = 300
+    ) -> str:
+        """
+        Start a new batch analysis job for multiple URLs.
+        
+        Args:
+            urls: List of URLs to analyze
+            business_ids: Optional list of business IDs corresponding to URLs
+            run_id: Optional processing run ID for tracking
+            batch_size: Number of URLs to process concurrently
+            priority: Job priority level
+            timeout_seconds: Timeout per URL in seconds
+            
+        Returns:
+            Batch job ID for tracking progress
+        """
+        try:
+            # Create batch job configuration
+            config = BatchJobConfig(
+                name=f"comprehensive_batch_{int(time.time())}",
+                description="Comprehensive website analysis batch job",
+                batch_size=batch_size,
+                priority=priority,
+                timeout_seconds=timeout_seconds,
+                enable_fallback=True,
+                strategy="mobile"
+            )
+            
+            # Start batch processing
+            batch_job_id = await self.batch_processor.start_batch_analysis(
+                urls=urls,
+                config=config,
+                run_id=run_id,
+                business_ids=business_ids
+            )
+            
+            logger.info(f"Started batch analysis job {batch_job_id} for {len(urls)} URLs")
+            return batch_job_id
+            
+        except Exception as e:
+            logger.error(f"Failed to start batch analysis: {e}")
+            raise
+    
+    async def get_batch_progress(self, batch_job_id: str):
+        """Get real-time progress for a batch analysis job."""
+        try:
+            return await self.batch_processor.get_batch_progress(batch_job_id)
+        except Exception as e:
+            logger.error(f"Failed to get batch progress: {e}")
+            return None
+    
+    async def cancel_batch_job(self, batch_job_id: str) -> bool:
+        """Cancel a running batch analysis job."""
+        try:
+            return await self.batch_processor.cancel_batch_job(batch_job_id)
+        except Exception as e:
+            logger.error(f"Failed to cancel batch job: {e}")
+            return False
+    
+    async def get_all_batch_jobs(self, limit: int = 50):
+        """Get all batch analysis jobs with pagination."""
+        try:
+            return await self.batch_processor.get_all_batch_jobs(limit)
+        except Exception as e:
+            logger.error(f"Failed to get batch jobs: {e}")
+            return []
+    
 
     
     def _update_service_health(self):
@@ -309,10 +407,23 @@ class ComprehensiveSpeedService(BaseService):
             unified_health = self.unified_analyzer.get_service_health()
             self.service_health["unified"] = unified_health.get("status", "unknown")
             
+            # Check batch processor service health
+            try:
+                # Simple health check for batch processor
+                if self.batch_processor and hasattr(self.batch_processor, 'active_batches'):
+                    self.service_health["batch_processor"] = "healthy"
+                else:
+                    self.service_health["batch_processor"] = "unhealthy"
+            except Exception:
+                self.service_health["batch_processor"] = "unhealthy"
+            
             # Determine overall health
-            if self.service_health["unified"] == "healthy":
+            healthy_services = sum(1 for status in self.service_health.values() if status == "healthy")
+            total_services = len(self.service_health) - 1  # Exclude 'overall'
+            
+            if healthy_services == total_services:
                 self.service_health["overall"] = "healthy"
-            elif self.service_health["unified"] == "degraded":
+            elif healthy_services > total_services // 2:
                 self.service_health["overall"] = "degraded"
             else:
                 self.service_health["overall"] = "unhealthy"
@@ -329,7 +440,8 @@ class ComprehensiveSpeedService(BaseService):
             "service": "comprehensive_speed",
             "status": self.service_health["overall"],
             "services": {
-                "unified": self.service_health["unified"]
+                "unified": self.service_health["unified"],
+                "batch_processor": self.service_health["batch_processor"]
             },
             "rate_limits": {
                 "comprehensive_speed": getattr(self.api_config, 'COMPREHENSIVE_SPEED_RATE_LIMIT_PER_MINUTE', 30)
@@ -338,7 +450,11 @@ class ComprehensiveSpeedService(BaseService):
                 "smart_retry": True,
                 "intelligent_caching": True,
                 "unified_scoring": True,
-                "batch_processing": True
+                "batch_processing": True,
+                "concurrent_processing": True,
+                "real_time_progress": True,
+                "job_queuing": True,
+                "priority_scheduling": True
             }
         }
     
@@ -474,3 +590,17 @@ class ComprehensiveSpeedService(BaseService):
             insights.append("Unable to generate insights due to data processing error")
         
         return insights
+    
+    async def shutdown(self):
+        """Shutdown the comprehensive speed service gracefully."""
+        try:
+            logger.info("Shutting down ComprehensiveSpeedService...")
+            
+            # Shutdown batch processor
+            if hasattr(self, 'batch_processor') and self.batch_processor:
+                await self.batch_processor.shutdown()
+            
+            logger.info("ComprehensiveSpeedService shutdown complete")
+            
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")

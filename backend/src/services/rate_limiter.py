@@ -4,7 +4,7 @@ Implements rate limiting for external APIs and circuit breaker for failure handl
 """
 
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 from datetime import datetime
 
 # Handle absolute vs package-relative imports so the module works both when
@@ -157,29 +157,63 @@ class RateLimiter(BaseService):
     def _check_circuit_breaker(self, api: str) -> str:
         cb = self._circuit_breakers[api]
         now = time.time()
-        if cb["state"] == "OPEN" and cb["last_failure"] and now - cb["last_failure"] >= cb["recovery_timeout"]:
-            cb["state"] = "HALF_OPEN"
+        
+        # If circuit breaker is OPEN, check if recovery timeout has passed
+        if cb["state"] == "OPEN" and cb["last_failure"]:
+            time_since_failure = now - cb["last_failure"]
+            if time_since_failure >= cb["recovery_timeout"]:
+                cb["state"] = "HALF_OPEN"
+                self.log_operation(f"Circuit breaker for {api} moved to HALF_OPEN state after {time_since_failure:.1f}s")
+        
         return cb["state"]
 
     def _record_failure(self, api: str, when: float):
         cb = self._circuit_breakers[api]
         cb["failures"] += 1
         cb["last_failure"] = when
+        
+        # Only open circuit breaker if we've exceeded the threshold
         if cb["failures"] >= cb["threshold"]:
             cb["state"] = "OPEN"
-            self.log_operation(f"Circuit breaker for {api} opened due to failures")
+            self.log_operation(f"Circuit breaker for {api} opened due to {cb['failures']} failures (threshold: {cb['threshold']})")
+        else:
+            self.log_operation(f"Recorded failure for {api}: {cb['failures']}/{cb['threshold']} (circuit breaker still CLOSED)")
 
     def _record_success(self, api: str):
         cb = self._circuit_breakers[api]
+        
+        # If in HALF_OPEN state, close the circuit breaker and reset failures
         if cb["state"] == "HALF_OPEN":
             cb.update({"state": "CLOSED", "failures": 0, "last_failure": None})
-            self.log_operation(f"Circuit breaker for {api} closed after recovery")
+            self.log_operation(f"Circuit breaker for {api} closed after successful recovery")
+        # If in CLOSED state, gradually reduce failure count to allow for recovery
+        elif cb["state"] == "CLOSED" and cb["failures"] > 0:
+            cb["failures"] = max(0, cb["failures"] - 1)  # Reduce failure count gradually
+            if cb["failures"] == 0:
+                cb["last_failure"] = None
+                self.log_operation(f"Circuit breaker for {api} fully recovered (failures reset to 0)")
 
     # ------------------------------------------------------------------
     # Boilerplate
     # ------------------------------------------------------------------
     def validate_input(self, data: any) -> bool:  # noqa: ANN401
         return isinstance(data, str) and data in self._rate_limits
+
+    def get_circuit_breaker_status(self, api: str) -> Optional[Dict[str, Any]]:
+        """Get detailed circuit breaker status for an API."""
+        if api not in self._circuit_breakers:
+            return None
+        
+        cb = self._circuit_breakers[api]
+        return {
+            "api": api,
+            "state": cb["state"],
+            "failures": cb["failures"],
+            "threshold": cb["threshold"],
+            "recovery_timeout": cb["recovery_timeout"],
+            "last_failure": cb["last_failure"],
+            "time_since_last_failure": time.time() - cb["last_failure"] if cb["last_failure"] else None
+        }
 
     def reset_circuit_breaker(self, api: str, run_id: Optional[str] = None):
         if api in self._circuit_breakers:
@@ -189,6 +223,8 @@ class RateLimiter(BaseService):
                 "last_failure": None,
             })
             self.log_operation(f"Manually reset circuit breaker for {api}", run_id=run_id)
+        else:
+            self.log_operation(f"Cannot reset circuit breaker: unknown API '{api}'", run_id=run_id)
 
     def reset_circuit_breaker_if_site_issues(self, api: str, run_id: Optional[str] = None):
         """Reset circuit breaker if it was opened due to site unresponsiveness rather than API failures."""

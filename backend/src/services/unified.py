@@ -7,7 +7,7 @@ import logging
 import math
 import asyncio
 import time
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Callable
 from urllib.parse import urlparse
 from tenacity import retry, stop_after_attempt, wait_exponential
 from datetime import datetime
@@ -771,7 +771,8 @@ class UnifiedAnalyzer:
         self,
         urls: List[str],
         strategy: str = "mobile",
-        max_concurrent: int = 3
+        max_concurrent: int = 3,
+        progress_callback: Optional[Callable] = None
     ) -> List[Dict[str, Any]]:
         """
         Run analysis on multiple URLs concurrently with rate limiting.
@@ -806,13 +807,23 @@ class UnifiedAnalyzer:
                     else:
                         self.analysis_stats["failed_analyses"] += 1
                     
+                    # Call progress callback if provided
+                    if progress_callback:
+                        try:
+                            if asyncio.iscoroutinefunction(progress_callback):
+                                await progress_callback(url, "completed", result)
+                            else:
+                                progress_callback(url, "completed", result)
+                        except Exception as e:
+                            logger.warning(f"Progress callback error: {e}")
+                    
                     return result
                     
                 except Exception as e:
                     self.analysis_stats["total_analyses"] += 1
                     self.analysis_stats["failed_analyses"] += 1
                     
-                    return {
+                    error_result = {
                         "domain": urlparse(url).hostname,
                         "url": url,
                         "analysisTimestamp": datetime.now().isoformat(),
@@ -826,6 +837,18 @@ class UnifiedAnalyzer:
                             "errors": [f"Batch analysis failed: {str(e)}"]
                         }
                     }
+                    
+                    # Call progress callback for failed analysis
+                    if progress_callback:
+                        try:
+                            if asyncio.iscoroutinefunction(progress_callback):
+                                await progress_callback(url, "failed", error_result)
+                            else:
+                                progress_callback(url, "failed", error_result)
+                        except Exception as callback_error:
+                            logger.warning(f"Progress callback error: {callback_error}")
+                    
+                    return error_result
         
         # Run all analyses concurrently
         tasks = [run_single_analysis(url) for url in urls]
@@ -853,6 +876,121 @@ class UnifiedAnalyzer:
                 processed_results.append(result)
         
         return processed_results
+    
+    async def run_enhanced_batch_analysis(
+        self,
+        urls: List[str],
+        strategy: str = "mobile",
+        max_concurrent: int = 5,
+        progress_callback: Optional[Callable] = None,
+        batch_size: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Enhanced batch analysis with real-time progress tracking and intelligent batching.
+        
+        Args:
+            urls: List of URLs to analyze
+            strategy: Analysis strategy ('mobile' or 'desktop')
+            max_concurrent: Maximum concurrent analyses
+            progress_callback: Optional callback for progress updates
+            batch_size: Size of each batch for processing
+            
+        Returns:
+            Dictionary with batch results and metadata
+        """
+        try:
+            start_time = time.time()
+            total_urls = len(urls)
+            
+            # Initialize results
+            all_results = []
+            successful_analyses = 0
+            failed_analyses = 0
+            
+            # Process URLs in batches
+            for batch_start in range(0, total_urls, batch_size):
+                batch_end = min(batch_start + batch_size, total_urls)
+                batch_urls = urls[batch_start:batch_end]
+                
+                logger.info(f"Processing batch {batch_start//batch_size + 1}: URLs {batch_start+1}-{batch_end}")
+                
+                # Process current batch
+                batch_results = await self.run_batch_analysis(
+                    urls=batch_urls,
+                    strategy=strategy,
+                    max_concurrent=max_concurrent,
+                    progress_callback=progress_callback
+                )
+                
+                # Process batch results
+                for result in batch_results:
+                    if result.get("summary", {}).get("servicesCompleted", 0) > 0:
+                        successful_analyses += 1
+                    else:
+                        failed_analyses += 1
+                    all_results.append(result)
+                
+                # Update overall progress
+                if progress_callback:
+                    try:
+                        progress_data = {
+                            "total_urls": total_urls,
+                            "processed_urls": len(all_results),
+                            "successful_analyses": successful_analyses,
+                            "failed_analyses": failed_analyses,
+                            "progress_percentage": (len(all_results) / total_urls) * 100,
+                            "current_batch": batch_start//batch_size + 1,
+                            "total_batches": (total_urls + batch_size - 1) // batch_size
+                        }
+                        
+                        if asyncio.iscoroutinefunction(progress_callback):
+                            await progress_callback("batch_progress", progress_data)
+                        else:
+                            progress_callback("batch_progress", progress_data)
+                    except Exception as e:
+                        logger.warning(f"Batch progress callback error: {e}")
+                
+                # Small delay between batches to prevent overwhelming APIs
+                if batch_end < total_urls:
+                    await asyncio.sleep(1)
+            
+            # Calculate final statistics
+            total_time = time.time() - start_time
+            success_rate = (successful_analyses / total_urls) * 100 if total_urls > 0 else 0
+            
+            # Update analysis statistics
+            self.analysis_stats["total_analyses"] += total_urls
+            self.analysis_stats["successful_analyses"] += successful_analyses
+            self.analysis_stats["failed_analyses"] += failed_analyses
+            
+            return {
+                "success": True,
+                "total_urls": total_urls,
+                "successful_analyses": successful_analyses,
+                "failed_analyses": failed_analyses,
+                "success_rate": round(success_rate, 2),
+                "total_processing_time": round(total_time, 2),
+                "average_time_per_url": round(total_time / total_urls, 2) if total_urls > 0 else 0,
+                "concurrency_level": max_concurrent,
+                "batch_size": batch_size,
+                "results": all_results,
+                "summary": {
+                    "totalErrors": failed_analyses,
+                    "servicesCompleted": successful_analyses,
+                    "analysisDuration": int(total_time * 1000)
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Enhanced batch analysis failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "total_urls": len(urls),
+                "successful_analyses": 0,
+                "failed_analyses": len(urls),
+                "results": []
+            }
     
     async def run_comprehensive_analysis(
         self,
