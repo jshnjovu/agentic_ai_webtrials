@@ -22,8 +22,8 @@ export default function LeadGenBuilder() {
 
   const steps = [
     { id: 0, name: 'Input Parameters', description: 'Enter location and niche' },
-    { id: 1, name: 'Discover Businesses', description: 'Find businesses in the area' },
-    { id: 2, name: 'Score Websites', description: 'Analyze website performance' },
+    { id: 1, name: 'Batch Processing', description: 'Discover businesses and score websites' },
+    { id: 2, name: 'Processing...', description: 'Analyzing website performance' },
     { id: 3, name: 'Review Results', description: 'Analyze scoring results' },
     { id: 4, name: 'Generate Demos', description: 'Create improved websites (Coming Soon)' },
     { id: 5, name: 'Deploy Sites', description: 'Host demo websites (Coming Soon)' },
@@ -48,42 +48,34 @@ export default function LeadGenBuilder() {
     try {
       addLog(`Starting LeadGenBuilder for ${niche} businesses in ${location}`);
       
-      // Step 1: Discover businesses
-      addLog('🔍 Discovering businesses...');
-      const discoverResponse = await fetch('/api/v1/leadgen/discover', {
+      // Use new batch API that combines discovery and scoring
+      addLog('🚀 Starting batch discovery and scoring...');
+      setCurrentStep(2); // Show processing step
+      
+      const batchResponse = await fetch('/api/v1/leadgen/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ location, niche, max_businesses: 2 })
+        body: JSON.stringify({ 
+          location, 
+          niche, 
+          max_businesses: 2,
+          enable_scoring: true 
+        })
       });
       
-      if (!discoverResponse.ok) {
-        throw new Error('Failed to discover businesses');
+      if (!batchResponse.ok) {
+        throw new Error('Failed to process batch request');
       }
       
-      const discoveredBusinesses = await discoverResponse.json();
-      addLog(`✅ Found ${discoveredBusinesses.businesses.length} businesses`);
-      setCurrentStep(2);
-
-      // Step 2: Score websites
-      addLog('📊 Scoring websites...');
-      const scoreResponse = await fetch('/api/v1/leadgen/score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businesses: discoveredBusinesses.businesses })
-      });
+      const batchResult = await batchResponse.json();
+      addLog(`✅ Batch processing completed:`);
+      addLog(`   - Found ${batchResult.discovery_count} businesses`);
+      addLog(`   - Successfully scored ${batchResult.successful_scores} websites`);
+      addLog(`   - Failed scores: ${batchResult.failed_scores}`);
+      addLog(`   - No websites: ${batchResult.no_websites}`);
       
-      if (!scoreResponse.ok) {
-        throw new Error('Failed to score websites');
-      }
-      
-      const scoredBusinesses = await scoreResponse.json();
-      addLog(`✅ Scored ${scoredBusinesses.businesses.length} websites`);
-      setCurrentStep(3);
-
-      // For now, we'll stop at scoring and show the results
-      // Demo site generation will be added later
-      setBusinesses(scoredBusinesses.businesses);
       setCurrentStep(3); // Set to Review Results step
+      setBusinesses(batchResult.businesses);
       addLog('🎯 Website scoring completed - ready for demo site generation');
       addLog('🎉 LeadGenBuilder scoring phase completed successfully!');
 

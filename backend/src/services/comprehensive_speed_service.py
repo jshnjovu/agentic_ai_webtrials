@@ -249,56 +249,73 @@ class ComprehensiveSpeedService(BaseService):
     async def run_batch_analysis(
         self,
         analysis_requests: List[Dict[str, Any]],
-        max_concurrent: int = 3,
-
+        max_concurrent: int = 3
     ) -> List[Dict[str, Any]]:
         """
         Run comprehensive analysis on multiple websites concurrently.
+        Delegates to unified analyzer for consistent batch processing.
         
         Args:
-            analysis_requests: List of analysis request dictionaries
+            analysis_requests: List of analysis request dictionaries with keys:
+                - website_url: URL to analyze
+                - business_id: Business identifier
+                - run_id: Optional run identifier
+                - strategy: Optional strategy ('mobile' or 'desktop')
             max_concurrent: Maximum concurrent analyses
-
             
         Returns:
-            List of analysis results
+            List of analysis results from unified analyzer
         """
-        import asyncio
-        from asyncio import Semaphore
-        
-        semaphore = Semaphore(max_concurrent)
-        
-        async def run_single_analysis(request: Dict[str, Any]) -> Dict[str, Any]:
-            async with semaphore:
-                return await self.run_comprehensive_analysis(
-                    website_url=request['website_url'],
-                    business_id=request['business_id'],
-                    run_id=request.get('run_id'),
-                    strategy=request.get('strategy', 'mobile'),
-
-                )
-        
-        # Run all analyses concurrently
-        tasks = [run_single_analysis(request) for request in analysis_requests]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Handle any exceptions and convert to error responses
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                processed_results.append({
+        try:
+            # Extract URLs from analysis requests
+            urls = [request['website_url'] for request in analysis_requests]
+            
+            # Use the first request's strategy or default to mobile
+            strategy = analysis_requests[0].get('strategy', 'mobile') if analysis_requests else 'mobile'
+            
+            # Delegate to unified analyzer for batch processing
+            logger.info(f"🚀 Running batch analysis for {len(urls)} URLs using unified analyzer")
+            results = await self.unified_analyzer.run_batch_analysis(
+                urls=urls,
+                strategy=strategy,
+                max_concurrent=max_concurrent
+            )
+            
+            # Enhance results with business_id and run_id from original requests
+            enhanced_results = []
+            for i, result in enumerate(results):
+                if i < len(analysis_requests):
+                    # Add business context from original request
+                    original_request = analysis_requests[i]
+                    result["business_id"] = original_request.get('business_id')
+                    result["run_id"] = original_request.get('run_id')
+                    
+                    # Ensure success field is present for compatibility
+                    if "summary" in result and result["summary"].get("servicesCompleted", 0) > 0:
+                        result["success"] = True
+                    else:
+                        result["success"] = False
+                
+                enhanced_results.append(result)
+            
+            logger.info(f"✅ Batch analysis completed: {len(enhanced_results)} results")
+            return enhanced_results
+            
+        except Exception as e:
+            logger.error(f"❌ Batch analysis failed: {e}")
+            # Return error results for all requests
+            return [
+                {
                     "success": False,
-                    "error": f"Analysis failed: {str(result)}",
+                    "error": f"Batch analysis failed: {str(e)}",
                     "error_code": "BATCH_ANALYSIS_FAILED",
-                    "context": "batch_comprehensive_analysis",
-                    "website_url": analysis_requests[i]['website_url'],
-                    "business_id": analysis_requests[i]['business_id'],
-                    "run_id": analysis_requests[i].get('run_id')
-                })
-            else:
-                processed_results.append(result)
-        
-        return processed_results
+                    "context": "comprehensive_batch_analysis",
+                    "website_url": request.get('website_url'),
+                    "business_id": request.get('business_id'),
+                    "run_id": request.get('run_id')
+                }
+                for request in analysis_requests
+            ]
     
 
     
