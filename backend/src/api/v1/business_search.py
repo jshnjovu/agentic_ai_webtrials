@@ -446,7 +446,7 @@ async def search_yelp_businesses(
             )
         
         # Execute search
-        result = service.search_businesses(request)
+        result = await service.search_businesses(request)
         
         # Handle error responses
         if isinstance(result, YelpBusinessSearchError):
@@ -530,7 +530,7 @@ async def search_yelp_businesses_get(
             )
         
         # Execute search
-        result = service.search_businesses(request)
+        result = await service.search_businesses(request)
         
         # Handle error responses
         if isinstance(result, YelpBusinessSearchError):

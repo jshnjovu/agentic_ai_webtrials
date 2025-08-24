@@ -245,8 +245,8 @@ class LeadGenToolExecutor:
                         run_id=f"discover_{niche}_{location}"
                     )
                     
-                    # Yelp service is not async, so don't await it
-                    yelp_results = self.yelp_service.search_businesses(yelp_request)
+                    # Yelp service is now async, so await it
+                    yelp_results = await self.yelp_service.search_businesses(yelp_request)
                     
                     # Check if we got an error response
                     if hasattr(yelp_results, 'error'):

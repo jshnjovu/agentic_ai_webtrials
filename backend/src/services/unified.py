@@ -7,12 +7,14 @@ import logging
 import math
 import asyncio
 import time
+import random
 from typing import Dict, Any, List, Optional, Union
 from urllib.parse import urlparse
 from tenacity import retry, stop_after_attempt, wait_exponential
 from datetime import datetime
 
-import requests
+import aiohttp
+import async_timeout
 
 from .domain_analysis import DomainAnalysisService
 from ..core.config import get_api_config
@@ -31,6 +33,9 @@ class UnifiedAnalyzer:
         # 1. Caching System
         self.cache = {}
         self.cache_ttl = 3600  # 1 hour cache TTL
+        self.cache_cleanup_counter = 0
+        self.cache_cleanup_threshold = 10  # Clean up every 10 requests
+        self.cache_size_threshold = 100  # Force cleanup if cache gets large
         
         # 2. Retry Logic Configuration
         self.retry_config = {
@@ -70,17 +75,17 @@ class UnifiedAnalyzer:
         # Check PageSpeed API key
         if self.google_api_key:
             self.service_health["pagespeed"] = "healthy"
-            log.info(f"✅ PageSpeed API key configured: {self.google_api_key[:10]}...")
+            log.debug(f"✅ PageSpeed API key configured: {self.google_api_key[:10]}...")
         else:
             self.service_health["pagespeed"] = "unconfigured"
             log.error(f"❌ PageSpeed API key NOT configured - this will cause failures!")
         
         # Log configuration summary
-        log.info(f"🔧 UnifiedAnalyzer initialized with:")
-        log.info(f"   - PageSpeed API Key: {'SET' if self.google_api_key else 'NOT_SET'}")
-        log.info(f"   - Cache TTL: {self.cache_ttl}s")
-        log.info(f"   - Retry attempts: {self.retry_config['max_attempts']}")
-        log.info(f"   - Rate limiter: {'enabled' if self.rate_limiter else 'disabled'}")
+        log.debug(f"🔧 UnifiedAnalyzer initialized with:")
+        log.debug(f"   - PageSpeed API Key: {'SET' if self.google_api_key else 'NOT_SET'}")
+        log.debug(f"   - Cache TTL: {self.cache_ttl}s")
+        log.debug(f"   - Retry attempts: {self.retry_config['max_attempts']}")
+        log.debug(f"   - Rate limiter: {'enabled' if self.rate_limiter else 'disabled'}")
         
         self._update_overall_health()
 
@@ -89,7 +94,7 @@ class UnifiedAnalyzer:
     async def make_request(self, url: str, **kwargs) -> Dict[str, Any]:
         """Enhanced request method with retry logic and rate limiting."""
         try:
-            log.info(f"🌐 Making HTTP request to: {url[:100]}...")
+            log.debug(f"🌐 Making HTTP request to: {url[:100]}...")
             
             # Check rate limits - use google_pagespeed since this is for PageSpeed API calls
             can_proceed, message = self.rate_limiter.can_make_request('google_pagespeed')
@@ -97,31 +102,48 @@ class UnifiedAnalyzer:
                 log.warning(f"⚠️ Rate limit exceeded: {message}")
                 raise RuntimeError(f"Rate limit exceeded: {message}")
             
-            log.info(f"📡 Sending request...")
-            resp = requests.get(url, **kwargs)
+            log.debug(f"📡 Sending request...")
             
-            log.info(f"📊 Response status: {resp.status_code} {resp.reason}")
-            log.info(f"📋 Response headers: {dict(resp.headers)}")
+            # Use aiohttp for non-blocking HTTP requests
+            timeout = kwargs.pop('timeout', 30)
+            async with async_timeout.timeout(timeout):
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, **kwargs) as resp:
+                        log.debug(f"📊 Response status: {resp.status} {resp.reason}")
+                        log.debug(f"📋 Response headers: {dict(resp.headers)}")
+                        
+                        if resp.status >= 400:
+                            # Record failed request
+                            self.rate_limiter.record_request('google_pagespeed', False)
+                            
+                            error_text = await resp.text()
+                            log.error(f"❌ HTTP request failed: {resp.status} {resp.reason}")
+                            log.error(f"🔍 Response headers: {dict(resp.headers)}")
+                            log.error(f"📋 Response body: {error_text[:500]}...")
+                            
+                            raise RuntimeError(
+                                f"Request failed with status {resp.status}: {resp.reason}"
+                            )
+                        
+                        # Record successful request
+                        self.rate_limiter.record_request('google_pagespeed', True)
+                        log.debug(f"✅ Request successful, parsing JSON response...")
+                        
+                        return await resp.json()
             
-            resp.raise_for_status()
-            
-            # Record successful request
-            self.rate_limiter.record_request('google_pagespeed', True)
-            log.info(f"✅ Request successful, parsing JSON response...")
-            
-            return resp.json()
-            
-        except requests.HTTPError as e:
+        except asyncio.TimeoutError:
             # Record failed request
             self.rate_limiter.record_request('google_pagespeed', False)
             
-            log.error(f"❌ HTTP request failed: {e.response.status_code} {e.response.reason}")
-            log.error(f"🔍 Response headers: {dict(e.response.headers)}")
-            log.error(f"📋 Response body: {e.response.text[:500]}...")
+            log.error(f"❌ Request timeout after {timeout}s")
+            raise RuntimeError(f"Request timeout after {timeout}s")
             
-            raise RuntimeError(
-                f"Request failed with status {e.response.status_code}: {e.response.reason}"
-            ) from e
+        except aiohttp.ClientError as e:
+            # Record failed request
+            self.rate_limiter.record_request('google_pagespeed', False)
+            
+            log.error(f"❌ aiohttp client error: {type(e).__name__}: {e}")
+            raise RuntimeError(f"aiohttp client error: {e}")
             
         except Exception as e:
             # Record failed request
@@ -322,15 +344,15 @@ class UnifiedAnalyzer:
         if cache_key in self.cache:
             cached_data = self.cache[cache_key]
             if time.time() - cached_data['timestamp'] < self.cache_ttl:
-                log.info(f"📋 Returning cached PageSpeed result for {url}")
+                log.debug(f"📋 Returning cached PageSpeed result for {url}")
                 self.analysis_stats["cache_hits"] += 1
                 return cached_data['data']
         
         # Cache miss - increment counter
         self.analysis_stats["cache_misses"] += 1
         
-        log.info(f"🚀 Starting PageSpeed analysis for {url} (mobile + desktop)")
-        log.info(f"🔑 API Key status: {'SET' if self.google_api_key else 'NOT_SET'}")
+        log.debug(f"🚀 Starting PageSpeed analysis for {url} (mobile + desktop)")
+        log.debug(f"🔑 API Key status: {'SET' if self.google_api_key else 'NOT_SET'}")
         
         # Check if circuit breaker is already open - fail fast
         can_proceed, message = self.rate_limiter.can_make_request('google_pagespeed')
@@ -356,12 +378,12 @@ class UnifiedAnalyzer:
         
         # Analyze both mobile and desktop
         for strategy_name in ["mobile", "desktop"]:
-            log.info(f"📱 Analyzing {strategy_name} for {url}")
+            log.debug(f"📱 Analyzing {strategy_name} for {url}")
             
             # Implement intelligent retry logic for each strategy
             for attempt in range(self.retry_config['max_attempts']):
                 try:
-                    log.info(f"📡 {strategy_name.capitalize()} attempt {attempt + 1}/{self.retry_config['max_attempts']} for {url}")
+                    log.debug(f"📡 {strategy_name.capitalize()} attempt {attempt + 1}/{self.retry_config['max_attempts']} for {url}")
                     
                     categories = ["performance", "accessibility", "best-practices", "seo"]
                     category_params = "&".join([f"category={c}" for c in categories])
@@ -370,7 +392,7 @@ class UnifiedAnalyzer:
                         f"&{category_params}&prettyPrint=true&key={self.google_api_key}"
                     )
                     
-                    log.info(f"🌐 Calling PageSpeed API for {strategy_name}: {api_url[:100]}...")
+                    log.debug(f"🌐 Calling PageSpeed API for {strategy_name}: {api_url[:100]}...")
 
                     data = await self.make_request(api_url)
 
@@ -417,8 +439,8 @@ class UnifiedAnalyzer:
                     scores = lighthouse.get("categories", {})
                     audits = lighthouse.get("audits", {})
 
-                    log.info(f"✅ {strategy_name.capitalize()} analysis successful for {url}")
-                    log.info(f"📊 Raw scores from API: {scores}")
+                    log.debug(f"✅ {strategy_name.capitalize()} analysis successful for {url}")
+                    log.debug(f"📊 Raw scores from API: {scores}")
                     
                     # Calculate scores directly following the new ethos
                     adjusted_scores = {
@@ -505,7 +527,7 @@ class UnifiedAnalyzer:
                         self.retry_config['base_delay'] * (2 ** attempt),
                         self.retry_config['max_delay']
                     )
-                    log.info(f"🔄 Retrying {strategy_name} for {url} in {delay}s (attempt {attempt + 2})")
+                    log.debug(f"🔄 Retrying {strategy_name} for {url} in {delay}s (attempt {attempt + 2})")
                     await asyncio.sleep(delay)
         
         # Build the final result following the new ethos structure
@@ -521,10 +543,13 @@ class UnifiedAnalyzer:
             'timestamp': time.time()
         }
         
-        # Clean up old cache entries
-        self._cleanup_cache()
+        # Increment cleanup counter and clean up old cache entries periodically
+        self.cache_cleanup_counter += 1
+        if self.cache_cleanup_counter >= self.cache_cleanup_threshold:
+            self._cleanup_cache()
+            self.cache_cleanup_counter = 0
         
-        log.info(f"✅ PageSpeed analysis completed for {url} (mobile: {'✅' if mobile_result else '❌'}, desktop: {'✅' if desktop_result else '❌'})")
+        log.debug(f"✅ PageSpeed analysis completed for {url} (mobile: {'✅' if mobile_result else '❌'}, desktop: {'✅' if desktop_result else '❌'})")
         return result
 
 
@@ -628,18 +653,31 @@ class UnifiedAnalyzer:
     # ------------------------------------------------------------------ #
     
     def _cleanup_cache(self):
-        """Clean up expired cache entries."""
+        """Optimized cache cleanup - run less frequently with batch deletion."""
         current_time = time.time()
-        expired_keys = [
-            key for key, value in self.cache.items()
-            if current_time - value['timestamp'] > self.cache_ttl
-        ]
         
+        # Only clean up every N requests or if cache is large
+        if len(self.cache) < self.cache_size_threshold and random.random() > 0.1:
+            return
+        
+        expired_keys = []
+        # Use list() to avoid RuntimeError during iteration
+        for key, value in list(self.cache.items()):
+            if current_time - value['timestamp'] > self.cache_ttl:
+                expired_keys.append(key)
+                # Batch deletion - limit to 50 entries per cleanup cycle
+                if len(expired_keys) > 50:
+                    break
+        
+        # Batch delete expired keys
         for key in expired_keys:
             del self.cache[key]
         
-        if expired_keys:
+        # Only log cleanup if significant
+        if expired_keys and len(expired_keys) > 10:
             log.info(f"Cleaned up {len(expired_keys)} expired cache entries")
+        elif expired_keys:
+            log.debug(f"Cleaned up {len(expired_keys)} expired cache entries")
     
     def _update_overall_health(self):
         """Update overall service health status."""
@@ -806,6 +844,7 @@ class UnifiedAnalyzer:
                     else:
                         self.analysis_stats["failed_analyses"] += 1
                     
+                    log.debug(f"✅ Batch analysis completed for {url}")
                     return result
                     
                 except Exception as e:
@@ -907,7 +946,7 @@ class UnifiedAnalyzer:
                     "desktop": pagespeed_result.get("desktop"),
                     "errors": pagespeed_result.get("errors", [])
                 }
-                log.info(f"✅ PageSpeed analysis completed for {url}")
+                log.debug(f"✅ PageSpeed analysis completed for {url}")
             except Exception as e:
                 log.warning(f"PageSpeed analysis failed for {url}: {e}")
                 result["pageSpeed"] = {
@@ -923,17 +962,18 @@ class UnifiedAnalyzer:
             if not result["pageSpeed"].get("mobile") and not result["pageSpeed"].get("desktop"):
                 # Add generic opportunities to the result for UI display
                 result["genericOpportunities"] = self.get_generic_opportunities(result)
-                log.info(f"📋 Added {len(result['genericOpportunities'])} generic opportunities for {url}")
+                log.debug(f"📋 Added {len(result['genericOpportunities'])} generic opportunities for {url}")
             
             # 2. WHOIS Analysis (use domain_analysis.py)
             try:
                 whois_result = await self._get_whois_data(url)
                 result["whois"] = whois_result
-                log.info(f"✅ WHOIS analysis completed for {url}")
+                log.debug(f"✅ WHOIS analysis completed for {url}")
             except Exception as e:
                 log.warning(f"WHOIS analysis failed for {url}: {e}")
                 result["whois"] = {
                     "domain": domain,
+                    "url": url,
                     "timestamp": datetime.now().isoformat(),
                     "whois": None,
                     "whoisHistory": None,
@@ -993,7 +1033,7 @@ class UnifiedAnalyzer:
                     },
                     "errors": []
                 }
-                log.info(f"✅ Trust and CRO analysis completed for {url} - Trust: {trust_score}, CRO: {cro_score}")
+                log.debug(f"✅ Trust and CRO analysis completed for {url} - Trust: {trust_score}, CRO: {cro_score}")
             except Exception as e:
                 log.warning(f"Trust and CRO analysis failed for {url}: {e}")
                 result["trustAndCRO"] = {
@@ -1035,7 +1075,7 @@ class UnifiedAnalyzer:
                             "whoisHistoryRecords": domain_analysis["whoisHistory"]["totalRecords"] if domain_analysis["whoisHistory"] else 0
                         }
                     }
-                    log.info(f"✅ Domain insights integration completed for {url}")
+                    log.debug(f"✅ Domain insights integration completed for {url}")
             except Exception as e:
                 log.warning(f"Domain insights integration failed for {url}: {e}")
             
@@ -1052,7 +1092,7 @@ class UnifiedAnalyzer:
             # Record successful request
             self.rate_limiter.record_request('comprehensive_speed', True)
             
-            log.info(f"✅ Comprehensive analysis completed for {url}")
+            log.debug(f"✅ Comprehensive analysis completed for {url}")
             return result
             
         except Exception as e:
@@ -1120,6 +1160,13 @@ class UnifiedAnalyzer:
                 "google_pagespeed": getattr(self.api_config, 'PAGESPEED_RATE_LIMIT_PER_MINUTE', 240),
                 "comprehensive_speed": getattr(self.api_config, 'COMPREHENSIVE_SPEED_RATE_LIMIT_PER_MINUTE', 30)
             },
+            "cache_health": {
+                "total_entries": len(self.cache),
+                "cleanup_counter": self.cache_cleanup_counter,
+                "cleanup_threshold": self.cache_cleanup_threshold,
+                "size_threshold": self.cache_size_threshold,
+                "last_cleanup": "recent" if self.cache_cleanup_counter < self.cache_cleanup_threshold else "due"
+            },
             "features": {
                 "caching": True,
                 "retry_logic": True,
@@ -1140,9 +1187,24 @@ class UnifiedAnalyzer:
                 "cache_hit_rate": (
                     self.analysis_stats["cache_hits"] / 
                     max(1, self.analysis_stats["cache_hits"] + self.analysis_stats["cache_misses"])
-                ) * 100
+                ) * 100,
+                "cleanup_counter": self.cache_cleanup_counter,
+                "cleanup_threshold": self.cache_cleanup_threshold,
+                "size_threshold": self.cache_size_threshold
             },
             "retry_config": self.retry_config.copy()
+        }
+    
+    def force_cache_cleanup(self) -> Dict[str, Any]:
+        """Force immediate cache cleanup and return statistics."""
+        self._cleanup_cache()
+        self.cache_cleanup_counter = 0
+        
+        return {
+            "action": "forced_cache_cleanup",
+            "timestamp": time.time(),
+            "cache_size_before": len(self.cache),
+            "cache_info": self.get_analysis_statistics()["cache_info"]
         }
     
     # --- New Ethos: Score Extraction Methods ---

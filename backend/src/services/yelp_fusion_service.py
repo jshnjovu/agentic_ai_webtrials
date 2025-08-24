@@ -3,7 +3,9 @@ Yelp Fusion business search service.
 Handles business search functionality using Yelp Fusion API.
 """
 
-import httpx
+import aiohttp
+import async_timeout
+import asyncio
 import re
 from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import quote_plus
@@ -31,7 +33,7 @@ class YelpFusionService(BaseService):
         """Validate input data for the service."""
         return isinstance(data, YelpBusinessSearchRequest)
     
-    def search_businesses(self, request: YelpBusinessSearchRequest) -> YelpBusinessSearchResponse | YelpBusinessSearchError:
+    async def search_businesses(self, request: YelpBusinessSearchRequest) -> YelpBusinessSearchResponse | YelpBusinessSearchError:
         """
         Search for businesses using Yelp Fusion API.
         
@@ -62,7 +64,7 @@ class YelpFusionService(BaseService):
             search_params = self._build_search_params(request)
             
             # Execute search
-            search_result = self._execute_search(search_params, request.run_id)
+            search_result = await self._execute_search(search_params, request.run_id)
             if not search_result["success"]:
                 self.log_operation(
                     f"Search execution failed: {search_result['error']}",
@@ -161,7 +163,7 @@ class YelpFusionService(BaseService):
         
         return params
     
-    def _execute_search(self, search_params: Dict[str, Any], run_id: Optional[str]) -> Dict[str, Any]:
+    async def _execute_search(self, search_params: Dict[str, Any], run_id: Optional[str]) -> Dict[str, Any]:
         """
         Execute the search request to Yelp Fusion API.
         
@@ -184,75 +186,78 @@ class YelpFusionService(BaseService):
                 run_id=run_id
             )
             
-            with httpx.Client(timeout=self.api_config.API_TIMEOUT_SECONDS) as client:
-                response = client.get(search_url, headers=headers, params=search_params)
-                
-                # Record the request for rate limiting
-                self.rate_limiter.record_request("yelp_fusion", response.status_code == 200, run_id)
-                
-                if response.status_code == 200:
-                    result = response.json()
+            timeout = self.api_config.API_TIMEOUT_SECONDS
+            async with async_timeout.timeout(timeout):
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(search_url, headers=headers, params=search_params) as response:
+                        
+                        # Record the request for rate limiting
+                        self.rate_limiter.record_request("yelp_fusion", response.status == 200, run_id)
+                        
+                        if response.status == 200:
+                            result = await response.json()
+                            
+                            # Log the raw API response structure for debugging
+                            self.log_operation(
+                                f"API response keys: {list(result.keys())}",
+                                run_id=run_id
+                            )
+                            
+                            # Extract businesses and total count
+                            businesses = result.get("businesses", [])
+                            total = result.get("total", 0)
+                            region = result.get("region", {})
+                            
+                            self.log_operation(
+                                f"Yelp Fusion API search successful: {len(businesses)} businesses found, total: {total}",
+                                run_id=run_id
+                            )
+                            
+                            # Log sample business data structure if available
+                            if businesses and len(businesses) > 0:
+                                sample_business = businesses[0]
+                                self.log_operation(
+                                    f"Sample business keys: {list(sample_business.keys())}",
+                                    run_id=run_id
+                                )
+                            
+                            return {
+                                "success": True,
+                                "results": businesses,
+                                "total": total,
+                                "region": region
+                            }
+                            
+                        elif response.status == 401:
+                            return {
+                                "success": False,
+                                "error": "Authentication failed - invalid API key",
+                                "error_code": "UNAUTHORIZED"
+                            }
+                            
+                        elif response.status == 429:
+                            return {
+                                "success": False,
+                                "error": "Rate limit exceeded",
+                                "error_code": "RATE_LIMITED"
+                            }
+                            
+                        else:
+                            response_text = await response.text()
+                            return {
+                                "success": False,
+                                "error": f"HTTP {response.status}: {response_text}",
+                                "error_code": f"HTTP_{response.status}"
+                            }
                     
-                    # Log the raw API response structure for debugging
-                    self.log_operation(
-                        f"API response keys: {list(result.keys())}",
-                        run_id=run_id
-                    )
-                    
-                    # Extract businesses and total count
-                    businesses = result.get("businesses", [])
-                    total = result.get("total", 0)
-                    region = result.get("region", {})
-                    
-                    self.log_operation(
-                        f"Yelp Fusion API search successful: {len(businesses)} businesses found, total: {total}",
-                        run_id=run_id
-                    )
-                    
-                    # Log sample business data structure if available
-                    if businesses and len(businesses) > 0:
-                        sample_business = businesses[0]
-                        self.log_operation(
-                            f"Sample business keys: {list(sample_business.keys())}",
-                            run_id=run_id
-                        )
-                    
-                    return {
-                        "success": True,
-                        "results": businesses,
-                        "total": total,
-                        "region": region
-                    }
-                    
-                elif response.status_code == 401:
-                    return {
-                        "success": False,
-                        "error": "Authentication failed - invalid API key",
-                        "error_code": "UNAUTHORIZED"
-                    }
-                    
-                elif response.status_code == 429:
-                    return {
-                        "success": False,
-                        "error": "Rate limit exceeded",
-                        "error_code": "RATE_LIMITED"
-                    }
-                    
-                else:
-                    return {
-                        "success": False,
-                        "error": f"HTTP {response.status_code}: {response.text}",
-                        "error_code": f"HTTP_{response.status_code}"
-                    }
-                    
-        except httpx.TimeoutException:
+        except asyncio.TimeoutError:
             return {
                 "success": False,
                 "error": "Request timeout",
                 "error_code": "TIMEOUT"
             }
             
-        except httpx.RequestError as e:
+        except aiohttp.ClientError as e:
             return {
                 "success": False,
                 "error": f"Request error: {str(e)}",

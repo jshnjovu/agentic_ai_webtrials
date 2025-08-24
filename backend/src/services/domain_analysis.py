@@ -5,10 +5,12 @@ Integrates WHOIS and DNS History APIs from WHOISXMLAPIs
 
 import logging
 import math
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
-import requests
+import aiohttp
+import async_timeout
 from ..core.config import get_api_config
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -55,7 +57,7 @@ class DomainAnalysisService:
                 },
             }
 
-            log.info("✅ Analysis complete for %s", domain)
+            log.debug("✅ Analysis complete for %s", domain)
             return analysis
 
         except Exception as e:
@@ -73,12 +75,16 @@ class DomainAnalysisService:
         }
 
         try:
-            resp = requests.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
+            async with async_timeout.timeout(10):
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params) as resp:
+                        if resp.status >= 400:
+                            raise RuntimeError(f"WHOIS API request failed with status {resp.status}: {resp.reason}")
+                        
+                        data = await resp.json()
 
-            log.info("\n🔍 RAW WHOIS API RESPONSE:")
-            log.info("%s", _pretty(data))
+                        log.debug("\n🔍 RAW WHOIS API RESPONSE:")
+                        log.debug("%s", _pretty(data))
 
             whois = data.get("WhoisRecord", {})
             if not whois:
@@ -124,12 +130,16 @@ class DomainAnalysisService:
         params = {"domainName": domain, "outputFormat": "JSON", "apiKey": self.whois_api_key}
 
         try:
-            resp = requests.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
+            async with async_timeout.timeout(10):
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params) as resp:
+                        if resp.status >= 400:
+                            raise RuntimeError(f"WHOIS History API request failed with status {resp.status}: {resp.reason}")
+                        
+                        data = await resp.json()
 
-            log.info("\n🔍 RAW WHOIS HISTORY API RESPONSE:")
-            log.info("%s", _pretty(data))
+                        log.debug("\n🔍 RAW WHOIS HISTORY API RESPONSE:")
+                        log.debug("%s", _pretty(data))
 
             if data.get("recordsCount") is not None:
                 return {

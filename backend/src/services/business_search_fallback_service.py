@@ -39,7 +39,7 @@ class BusinessSearchFallbackService(BaseService):
         """Validate input data for the service."""
         return isinstance(data, BusinessSearchRequest)
     
-    def search_businesses_with_fallback(self, request: BusinessSearchRequest) -> Union[BusinessSearchResponse, BusinessSearchError]:
+    async def search_businesses_with_fallback(self, request: BusinessSearchRequest) -> Union[BusinessSearchResponse, BusinessSearchError]:
         """
         Search for businesses using SerpAPI as primary API.
         
@@ -74,7 +74,7 @@ class BusinessSearchFallbackService(BaseService):
                 )
                 
                 # Try Yelp Fusion as fallback
-                yelp_result = self._try_yelp_fusion_search(request)
+                yelp_result = await self._try_yelp_fusion_search(request)
                 if yelp_result.success:
                     self.log_operation(
                         f"Yelp Fusion fallback successful: {len(yelp_result.businesses)} results",
@@ -120,7 +120,7 @@ class BusinessSearchFallbackService(BaseService):
                 run_id=request.run_id
             )
     
-    def _try_yelp_fusion_search(self, request: BusinessSearchRequest) -> Union[YelpBusinessSearchResponse, YelpBusinessSearchError]:
+    async def _try_yelp_fusion_search(self, request: BusinessSearchRequest) -> Union[YelpBusinessSearchResponse, YelpBusinessSearchError]:
         """Try Yelp Fusion search."""
         try:
             # Convert BusinessSearchRequest to YelpBusinessSearchRequest
@@ -134,7 +134,7 @@ class BusinessSearchFallbackService(BaseService):
                 run_id=request.run_id
             )
             
-            return self.yelp_fusion_service.search_businesses(yelp_request)
+            return await self.yelp_fusion_service.search_businesses(yelp_request)
             
         except Exception as e:
             self.logger.warning(f"Yelp Fusion search failed: {str(e)}")
