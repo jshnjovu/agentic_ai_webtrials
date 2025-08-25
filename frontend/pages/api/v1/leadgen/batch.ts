@@ -128,10 +128,19 @@ export default async function handler(
                 result.url === business.website || result.domain === business.website?.replace(/^https?:\/\//, '')
               );
 
-              if (scoreResult && scoreResult.pageSpeed) {
+              if (scoreResult) {
                 // Extract scores from backend results
-                const mobile = scoreResult.pageSpeed.mobile;
-                const desktop = scoreResult.pageSpeed.desktop;
+                const mobile = scoreResult.pageSpeed?.mobile;
+                const desktop = scoreResult.pageSpeed?.desktop;
+                
+                // Debug: Log what we're working with
+                console.log(`🔍 Processing score result for ${business.website}:`, {
+                  hasPageSpeed: !!scoreResult.pageSpeed,
+                  hasMobile: !!mobile,
+                  hasDesktop: !!desktop,
+                  hasOpportunities: !!scoreResult.opportunities,
+                  opportunitiesCount: scoreResult.opportunities?.length || 0
+                });
                 
                 // Prefer mobile scores, fallback to desktop
                 const scores = mobile?.scores || desktop?.scores || {};
@@ -149,9 +158,47 @@ export default async function handler(
                   ? Math.round(availableScores.reduce((sum, score) => sum + score, 0) / availableScores.length)
                   : 0;
 
-                // Extract opportunities
-                const opportunities = scoreResult.pageSpeed.mobile?.opportunities || 
-                                   scoreResult.pageSpeed.desktop?.opportunities || [];
+                // Extract opportunities - check both PageSpeed-specific and generic opportunities
+                let opportunities = [];
+                
+                // First try to get PageSpeed-specific opportunities
+                if (scoreResult.pageSpeed?.mobile?.opportunities) {
+                  opportunities = scoreResult.pageSpeed.mobile.opportunities;
+                } else if (scoreResult.pageSpeed?.desktop?.opportunities) {
+                  opportunities = scoreResult.pageSpeed.desktop.opportunities;
+                }
+                
+                // If no PageSpeed opportunities, check for generic opportunities (for down websites)
+                if (opportunities.length === 0 && scoreResult.opportunities) {
+                  opportunities = scoreResult.opportunities;
+                }
+                
+                // If still no opportunities, create generic ones for failed analyses
+                if (opportunities.length === 0 && (!mobile && !desktop)) {
+                  opportunities = [
+                    {
+                      title: "Website Accessibility Issue",
+                      description: "The website appears to be inaccessible or experiencing technical difficulties.",
+                      potentialSavings: 0,
+                      unit: "priority"
+                    },
+                    {
+                      title: "Server Response Problem", 
+                      description: "The website server is not responding properly, which affects user experience.",
+                      potentialSavings: 0,
+                      unit: "priority"
+                    },
+                    {
+                      title: "Technical Infrastructure Review",
+                      description: "Consider reviewing hosting, DNS configuration, and server health.",
+                      potentialSavings: 0,
+                      unit: "priority"
+                    }
+                  ];
+                  console.log(`🔄 Created generic opportunities for ${business.website} (down website)`);
+                }
+                
+                console.log(`📋 Final opportunities for ${business.website}:`, opportunities.length, 'opportunities found');
 
                 return {
                   ...business,

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { 
-  MapPin, 
-  Building2, 
-  Globe, 
-  Target, 
+import {
+  MapPin,
+  Building2,
+  Globe,
+  Target,
   CheckCircle,
   AlertCircle,
   ExternalLink,
@@ -21,10 +21,10 @@ interface LeadGenSequentialResultsProps {
   niche: string;
 }
 
-export default function LeadGenSequentialResults({ 
-  businesses, 
-  location, 
-  niche 
+export default function LeadGenSequentialResults({
+  businesses,
+  location,
+  niche
 }: LeadGenSequentialResultsProps) {
   const [expandedPhase, setExpandedPhase] = useState<number | null>(null);
   const [expandedBusiness, setExpandedBusiness] = useState<number | null>(null);
@@ -82,7 +82,7 @@ export default function LeadGenSequentialResults({
 
       {/* Phase 1: Business Discovery Results */}
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-        <div 
+        <div
           className="p-6 cursor-pointer hover:bg-gray-50 border-b"
           onClick={() => setExpandedPhase(expandedPhase === 1 ? null : 1)}
         >
@@ -123,9 +123,9 @@ export default function LeadGenSequentialResults({
                       <td className="px-4 py-4 whitespace-nowrap">
                         <div>
                           {business.website ? (
-                            <a 
-                              href={business.website} 
-                              target="_blank" 
+                            <a
+                              href={business.website}
+                              target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:text-blue-800 text-sm font-medium hover:underline"
                             >
@@ -173,7 +173,7 @@ export default function LeadGenSequentialResults({
 
       {/* Phase 2: Website Scoring Results */}
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-        <div 
+        <div
           className="p-6 cursor-pointer hover:bg-gray-50 border-b"
           onClick={() => setExpandedPhase(expandedPhase === 2 ? null : 2)}
         >
@@ -268,7 +268,6 @@ export default function LeadGenSequentialResults({
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">CRO</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Overall</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Top Issues</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -311,11 +310,10 @@ export default function LeadGenSequentialResults({
                           </div>
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-center">
-                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                            (business.score_overall || 0) >= 70 
-                              ? 'bg-green-100 text-green-800' 
+                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${(business.score_overall || 0) >= 70
+                              ? 'bg-green-100 text-green-800'
                               : 'bg-orange-100 text-orange-800'
-                          }`}>
+                            }`}>
                             {(business.score_overall || 0) >= 70 ? (
                               <>
                                 <CheckCircle className="w-3 h-3 mr-1" />
@@ -329,20 +327,6 @@ export default function LeadGenSequentialResults({
                             )}
                           </span>
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-center">
-                          {business.top_issues && business.top_issues.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {business.top_issues.slice(0, 3).map((issue, issueIndex) => (
-                                <span key={issueIndex} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                  <AlertCircle className="w-3 h-3 mr-1" />
-                                  {issue}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-gray-400 text-sm">None</span>
-                          )}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -355,7 +339,7 @@ export default function LeadGenSequentialResults({
 
       {/* Phase 3: Improvement Opportunities */}
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-        <div 
+        <div
           className="p-6 cursor-pointer hover:bg-gray-50 border-b"
           onClick={() => setExpandedPhase(expandedPhase === 3 ? null : 3)}
         >
@@ -378,7 +362,6 @@ export default function LeadGenSequentialResults({
             </div>
           </div>
         </div>
-
         {expandedPhase === 3 && (
           <div className="p-6 bg-gray-50">
             {lowScorers.length > 0 ? (
@@ -389,8 +372,7 @@ export default function LeadGenSequentialResults({
                     <div>
                       <h4 className="font-medium text-orange-800">Demo Site Generation Criteria</h4>
                       <p className="text-sm text-orange-700">
-                        Businesses scoring below 70 points automatically qualify for demo site generation. 
-                        This ensures only websites that genuinely need improvement receive demo sites.
+                        Businesses scoring below 70 points automatically qualify for demo site generation.
                       </p>
                     </div>
                   </div>
@@ -401,48 +383,21 @@ export default function LeadGenSequentialResults({
                     <div key={index} className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow">
                       <div className="flex items-start justify-between mb-3">
                         <h5 className="font-medium text-gray-900">{business.business_name}</h5>
-                        <div className={`inline-flex px-2 py-1 rounded text-xs font-medium ${getScoreColor(business.score_overall || 0)}`}>
+                        <div
+                          className={`inline-flex px-2 py-1 rounded text-xs font-medium ${getScoreColor(
+                            business.score_overall || 0
+                          )}`}
+                        >
                           {business.score_overall || 0}%
                         </div>
                       </div>
-                      
-                      {/* Improvement Opportunities Table */}
-                      <div className="mt-3">
-                        <h6 className="text-xs font-medium text-gray-700 mb-2">Improvement Opportunities:</h6>
-                        {business.website_score?.opportunities && business.website_score.opportunities.length > 0 ? (
-                          <div className="overflow-x-auto">
-                            <table className="min-w-full text-xs">
-                              <thead className="bg-gray-50">
-                                <tr>
-                                  <th className="px-2 py-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Opportunity</th>
-                                </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-gray-100">
-                                {business.website_score.opportunities.slice(0, 3).map((opportunity, oppIndex) => (
-                                  <tr key={oppIndex} className="hover:bg-gray-50">
-                                    <td className="px-2 py-1">
-                                      <div className="text-xs text-gray-900 font-medium">{opportunity.title}</div>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-gray-500 italic">
-                            {business.website_score ? 
-                              `No opportunities found (${business.website_score.opportunities?.length || 0} available)` : 
-                              'Website score data not available'
-                            }
-                          </div>
-                        )}
-                      </div>
 
+                      {/* Keep the list of **unique** top issues only */}
                       {business.top_issues && business.top_issues.length > 0 && (
                         <div className="mt-3 pt-3 border-t">
                           <h6 className="text-xs font-medium text-gray-700 mb-2">Top Issues:</h6>
                           <ul className="space-y-1">
-                            {business.top_issues.slice(0, 3).map((issue, issueIndex) => (
+                            {business.top_issues.map((issue, issueIndex) => (
                               <li key={issueIndex} className="text-xs text-red-600 flex items-start">
                                 <AlertCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
                                 {issue}
@@ -461,9 +416,9 @@ export default function LeadGenSequentialResults({
                           {business.website && (
                             <div className="flex items-center">
                               <Globe className="w-3 h-3 mr-1" />
-                              <a 
-                                href={business.website} 
-                                target="_blank" 
+                              <a
+                                href={business.website}
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-blue-600 hover:underline"
                               >
@@ -482,8 +437,7 @@ export default function LeadGenSequentialResults({
                 <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
                 <h4 className="text-lg font-medium text-gray-900 mb-2">All Websites Score Well!</h4>
                 <p className="text-gray-600">
-                  Congratulations! All discovered businesses have websites scoring 70 or above. 
-                  No demo sites are needed at this time.
+                  All discovered businesses have websites scoring 70 or above. No demo sites are needed.
                 </p>
               </div>
             )}

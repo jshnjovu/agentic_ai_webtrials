@@ -132,7 +132,7 @@ async def run_pagespeed_audit(
             trust_score,
             cro_score
         ]) / 5, 1)  # Round to 1 decimal place for cleaner display
-        
+         
         website_scores = WebsiteScore(
             performance=performance_score,
             accessibility=accessibility_score,

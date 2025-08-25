@@ -16,6 +16,8 @@ from datetime import datetime
 import aiohttp
 import async_timeout
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 
 from .domain_analysis import DomainAnalysisService
 from ..core.config import get_api_config
@@ -33,7 +35,13 @@ class UnifiedAnalyzer:
         # Initialize Google PageSpeed API service
         if self.google_api_key:
             try:
-                self.pagespeed_service = build('pagespeedonline', 'v5', developerKey=self.google_api_key)
+                # Use developer key directly to avoid file_cache issues
+                self.pagespeed_service = build(
+                    'pagespeedonline', 
+                    'v5', 
+                    developerKey=self.google_api_key,
+                    cache_discovery=False  # Disable discovery cache to avoid file_cache issues
+                )
                 log.debug(f"✅ Google PageSpeed API service initialized with key: {self.google_api_key[:10]}...")
             except Exception as e:
                 log.error(f"❌ Failed to initialize Google PageSpeed API service: {e}")
@@ -316,9 +324,10 @@ class UnifiedAnalyzer:
         """
         all_opportunities = []
         
-        # The structure is {'mobile': {...}, 'desktop': {...}, 'errors': [...]}
+        # The structure is {'pageSpeed': {'mobile': {...}, 'desktop': {...}, 'errors': [...]}}
         # Check mobile opportunities first
-        mobile = analysis_result.get("mobile", {})
+        page_speed = analysis_result.get("pageSpeed", {})
+        mobile = page_speed.get("mobile")
         if mobile and mobile.get("opportunities"):
             for opp in mobile["opportunities"]:
                 # Truncate long titles to prevent UI overflow
@@ -335,7 +344,7 @@ class UnifiedAnalyzer:
         
         # Add desktop opportunities if we don't have enough
         if len(all_opportunities) < 3:
-            desktop = analysis_result.get("desktop", {})
+            desktop = page_speed.get("desktop")
             if desktop and desktop.get("opportunities"):
                 for opp in desktop["opportunities"]:
                     if len(all_opportunities) >= 3:
