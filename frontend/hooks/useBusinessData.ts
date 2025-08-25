@@ -19,7 +19,7 @@ export interface Business {
   score_perf?: number;
   score_access?: number;
   score_seo?: number;
-  score_trust?: number;
+  score_best_practices?: number;
   score_cro?: number;
   score_category?: string;
   demo_eligible?: boolean;

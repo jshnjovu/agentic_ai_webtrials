@@ -27,7 +27,7 @@ class WebsiteScore(BaseModel):
     performance: float = Field(..., ge=0, le=100, description="Performance score (0-100)")
     accessibility: float = Field(..., ge=0, le=100, description="Accessibility score (0-100)")
     seo: float = Field(..., ge=0, le=100, description="SEO score (0-100)")
-    trust: float = Field(..., ge=0, le=100, description="Trust signal score (0-100)")
+    bestPractices: float = Field(..., ge=0, le=100, description="Best practices score (0-100)")
     cro: float = Field(..., ge=0, le=100, description="Conversion optimization score (0-100)")
     overall: float = Field(..., ge=0, le=100, description="Overall weighted score (0-100)")
     

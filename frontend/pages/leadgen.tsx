@@ -229,7 +229,7 @@ export default function LeadGenBuilder() {
               <button
                 onClick={() => {
                   const csvContent = [
-                    ['Business Name', 'Contact Name', 'Email', 'Phone', 'Website', 'Address', 'Overall Score', 'Performance', 'Accessibility', 'SEO', 'Trust', 'CRO', 'Top Issues'].join(','),
+                    ['Business Name', 'Contact Name', 'Email', 'Phone', 'Website', 'Address', 'Overall Score', 'Performance', 'Accessibility', 'SEO', 'Best Practices', 'CRO', 'Top Issues'].join(','),
                     ...businesses.map(b => [
                       b.business_name,
                       b.contact_name || '',
@@ -241,7 +241,7 @@ export default function LeadGenBuilder() {
                       b.score_perf,
                       b.score_access,
                       b.score_seo,
-                      b.score_trust,
+                      b.score_best_practices,
                       b.score_cro,
                       (b.top_issues || []).join('; ')
                     ].map(field => `"${field}"`).join(','))

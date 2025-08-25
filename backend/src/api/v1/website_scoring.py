@@ -115,7 +115,6 @@ async def run_pagespeed_audit(
         
         # Try to get mobile usability score as a CRO indicator
         try:
-            analyzer = UnifiedAnalyzer()
             mobile_usability_score = analyzer.get_mobile_usability_score(analysis_result)
             if mobile_usability_score is not None:
                 cro_score = mobile_usability_score
@@ -123,23 +122,40 @@ async def run_pagespeed_audit(
         except Exception as e:
             logger.warning(f"⚠️ Could not extract mobile usability score for {request.website_url}: {e}")
         
-        # Create WebsiteScore object with proper field mapping
-        # Calculate overall as percentage (average of 5 metrics)
-        overall_percentage = round(sum([
-            performance_score,
-            accessibility_score,
-            seo_score,
-            trust_score,
-            cro_score
-        ]) / 5, 1)  # Round to 1 decimal place for cleaner display
-         
+        # Extract Best Practices score from the real PageSpeed data
+        # Prefer mobile data, fallback to desktop
+        best_practices_score = 0
+        if mobile_data and mobile_data.get("scores"):
+            best_practices_score = mobile_data["scores"].get("bestPractices", 0)
+        elif desktop_data and desktop_data.get("scores"):
+            best_practices_score = desktop_data["scores"].get("bestPractices", 0)
+        
+        # Use the real analysis_result structure that unified.py expects for score calculation
+        # This ensures we're using actual data, not mocked values
+        real_analysis_result = {
+            "pageSpeed": {
+                "mobile": mobile_data if mobile_data else None,
+                "desktop": desktop_data if desktop_data else None
+            },
+            "trustAndCRO": {
+                "cro": {
+                    "parsed": {
+                        "score": cro_score
+                    }
+                }
+            }
+        }
+        
+        # Get overall score from unified analyzer using real data (monopoly on core calculation)
+        overall_score = analyzer.get_overall_score(real_analysis_result)
+        
         website_scores = WebsiteScore(
             performance=performance_score,
             accessibility=accessibility_score,
             seo=seo_score,
-            trust=trust_score,
+            bestPractices=best_practices_score,
             cro=cro_score,
-            overall=overall_percentage
+            overall=overall_score
         )
         
         # Validate scores and log any anomalies
@@ -178,7 +194,6 @@ async def run_pagespeed_audit(
         top_issues = []
         try:
             # Get opportunities from the unified analyzer
-            analyzer = UnifiedAnalyzer()
             opportunities = analyzer.get_all_opportunities(analysis_result)
             top_issues = analyzer.get_top_issues(analysis_result)
             logger.info(f"📋 Extracted {len(opportunities)} opportunities and {len(top_issues)} top issues for {request.website_url}")
@@ -221,7 +236,7 @@ async def run_pagespeed_audit(
             }
         
         logger.info(f"✅ PageSpeed analysis completed for {request.website_url}")
-        logger.info(f"📊 Scores extracted - Performance: {performance_score}, Accessibility: {accessibility_score}, SEO: {seo_score}, Overall: {website_scores.overall}")
+        logger.info(f"📊 Scores extracted - Performance: {performance_score}, Accessibility: {accessibility_score}, SEO: {seo_score}, Best Practices: {best_practices_score}, Overall: {website_scores.overall}")
         
         return response
         
@@ -245,10 +260,10 @@ def _validate_and_log_scores(scores: WebsiteScore, website_url: str):
         if low_scores:
             logger.info(f"📊 Very low scores for {website_url}: {low_scores}")
         
-        # Log overall score calculation
-        expected_overall = round(sum([scores.performance, scores.accessibility, scores.seo, scores.trust, scores.cro]) / 5)
-        if expected_overall != scores.overall:
-            logger.warning(f"⚠️ Score calculation mismatch for {website_url}: expected {expected_overall}, got {scores.overall}")
+        # Log overall score calculation - unified.py now uses 5 metrics (Trust excluded)
+        # The unified analyzer calculates: (Performance + Accessibility + Best_Practices + SEO + CRO) / 5
+        logger.info(f"📊 Overall score from unified analyzer: {scores.overall} for {website_url}")
+        logger.info(f"📊 Individual scores - Performance: {scores.performance}, Accessibility: {scores.accessibility}, SEO: {scores.seo}, Best Practices: {best_practices_score}, CRO: {scores.cro}")
         
     except Exception as e:
         logger.error(f"❌ Error validating scores for {website_url}: {e}")
@@ -389,7 +404,7 @@ async def run_comprehensive_analysis(
                     "performance": analyzer.get_performance_score(result),
                     "accessibility": analyzer.get_accessibility_score(result),
                     "seo": analyzer.get_seo_score(result),
-                    "trust": analyzer.get_trust_score(result),
+                    "bestPractices": analyzer.get_best_practices_score(result),
                     "cro": analyzer.get_cro_score(result),
                     "overall": overall_score
                 }

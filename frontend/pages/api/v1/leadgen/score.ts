@@ -72,7 +72,7 @@ export default async function handler(
           performance: scoreData.scores.performance,
           accessibility: scoreData.scores.accessibility,
           seo: scoreData.scores.seo,
-          trust: scoreData.scores.trust,
+          bestPractices: scoreData.scores.bestPractices,
           cro: scoreData.scores.cro,
           fallbackUsed: scoreData.fallbackUsed || false
         });
@@ -83,7 +83,7 @@ export default async function handler(
           performance_score: scoreData.scores.performance || 0,
           accessibility_score: scoreData.scores.accessibility || 0,
           seo_score: scoreData.scores.seo || 0,
-          trust_score: scoreData.scores.trust || 0,
+          best_practices_score: scoreData.scores.bestPractices || 0,
           cro_score: scoreData.scores.cro || 0,
           first_contentful_paint: scoreData.coreWebVitals.firstContentfulPaint || null,
           largest_contentful_paint: scoreData.coreWebVitals.largestContentfulPaint || null,
@@ -104,7 +104,7 @@ export default async function handler(
           score_perf: scoreData.scores.performance || 0,
           score_access: scoreData.scores.accessibility || 0,
           score_seo: scoreData.scores.seo || 0,
-          score_trust: scoreData.scores.trust || 0, // Will be 0 if not available
+          score_best_practices: scoreData.scores.bestPractices || 0, // Will be 0 if not available
           score_cro: scoreData.scores.cro || 0,     // Will be 0 if not available
           scoring_status: 'completed',
           scoring_error: null,

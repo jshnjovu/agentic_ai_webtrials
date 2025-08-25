@@ -122,7 +122,6 @@ class ComprehensiveSpeedService(BaseService):
                         "accessibility": unified_scores.get("accessibility", 0.0),
                         "bestPractices": unified_scores.get("bestPractices", 0.0),
                         "seo": unified_scores.get("seo", 0.0),
-                        "trust": unified_scores.get("trust", 0.0),
                         "cro": unified_scores.get("cro", 0.0)
                     })
                     
@@ -146,7 +145,6 @@ class ComprehensiveSpeedService(BaseService):
                         "accessibility": 0.0,
                         "bestPractices": 0.0,
                         "seo": 0.0,
-                        "trust": 0.0,
                         "cro": 0.0
                     })
                     
@@ -157,12 +155,35 @@ class ComprehensiveSpeedService(BaseService):
                     "accessibility": 0.0,
                     "bestPractices": 0.0,
                     "seo": 0.0,
-                    "trust": 0.0,
                     "cro": 0.0
                 })
             
-            # 3. Calculate overall score using unified analyzer
-            overall_score = self.unified_analyzer._calculate_overall_score(analysis_result["scores"])
+            # 3. Calculate overall score using unified analyzer's get_overall_score method
+            # Create a mock analysis_result structure that unified.py expects
+            mock_analysis_result = {
+                "pageSpeed": {
+                    "mobile": {
+                        "scores": analysis_result["scores"]
+                    },
+                    "desktop": {
+                        "scores": analysis_result["scores"]
+                    }
+                },
+                "trustAndCRO": {
+                    "trust": {
+                        "parsed": {
+                            "score": analysis_result["scores"].get("trust", 0)
+                        }
+                    },
+                    "cro": {
+                        "parsed": {
+                            "score": analysis_result["scores"].get("cro", 0)
+                        }
+                    }
+                }
+            }
+            
+            overall_score = self.unified_analyzer.get_overall_score(mock_analysis_result)
             analysis_result["scores"]["overall"] = overall_score
             
             # 4. Add analysis metadata
@@ -398,9 +419,8 @@ class ComprehensiveSpeedService(BaseService):
             avg_scores = {
                 "performance": sum(performance_scores) / len(performance_scores),
                 "accessibility": sum([r.get("scores", {}).get("accessibility", 0) for r in successful_results]) / total_websites,
-                "best_practices": sum([r.get("scores", {}).get("best_practices", 0) for r in successful_results]) / total_websites,
+                "best_practices": sum([r.get("scores", {}).get("bestPractices", 0) for r in successful_results]) / total_websites,
                 "seo": sum([r.get("scores", {}).get("seo", 0) for r in successful_results]) / total_websites,
-                "trust": sum([r.get("scores", {}).get("trust", 0) for r in successful_results]) / total_websites,
                 "cro": sum([r.get("scores", {}).get("cro", 0) for r in successful_results]) / total_websites,
                 "overall": sum(overall_scores) / len(overall_scores)
             }
@@ -418,7 +438,7 @@ class ComprehensiveSpeedService(BaseService):
                         "website_url": r.get("website_url"),
                         "overall_score": r.get("scores", {}).get("overall", 0),
                         "performance_score": r.get("scores", {}).get("performance", 0),
-                        "trust_score": r.get("scores", {}).get("trust", 0)
+                        "best_practices_score": r.get("scores", {}).get("bestPractices", 0)
                     }
                     for r in top_performers
                 ],
@@ -468,14 +488,14 @@ class ComprehensiveSpeedService(BaseService):
             elif avg_performance >= 90:
                 insights.append("Excellent performance across analyzed websites")
             
-            # Trust insights
-            trust_scores = [r.get("scores", {}).get("trust", 0) for r in results]
-            avg_trust = sum(trust_scores) / len(trust_scores)
+            # Best Practices insights
+            best_practices_scores = [r.get("scores", {}).get("bestPractices", 0) for r in results]
+            avg_best_practices = sum(best_practices_scores) / len(best_practices_scores)
             
-            if avg_trust < 60:
-                insights.append("Low trust scores indicate security/credibility issues")
-            elif avg_trust >= 80:
-                insights.append("High trust scores show good security practices")
+            if avg_best_practices < 60:
+                insights.append("Low best practices scores indicate room for improvement in coding standards")
+            elif avg_best_practices >= 80:
+                insights.append("High best practices scores show good coding standards")
             
             # CRO insights
             cro_scores = [r.get("scores", {}).get("cro", 0) for r in results]

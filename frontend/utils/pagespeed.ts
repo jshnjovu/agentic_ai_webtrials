@@ -15,7 +15,7 @@ export interface PageSpeedScores {
   performance: number;
   accessibility: number;
   seo: number;
-  trust: number;
+  bestPractices: number;
   cro: number;
 }
 
@@ -45,7 +45,7 @@ export interface PageSpeedResult {
 
 /**
  * Run comprehensive website analysis using the backend API
- * This includes PageSpeed scores PLUS Trust and CRO scores
+ * This includes PageSpeed scores PLUS Best Practices and CRO scores
  */
 export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<PageSpeedResult> {
   try {
@@ -54,7 +54,7 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
     // Get backend URL from environment or use default
     const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
-    // Call the backend comprehensive analysis API to get ALL scores including Trust and CRO
+    // Call the backend comprehensive analysis API to get ALL scores including Best Practices and CRO
     const response = await fetch(`${BACKEND_URL}/api/v1/website-scoring/comprehensive`, {
       method: 'POST',
       headers: {
@@ -81,7 +81,7 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
     });
 
     // Extract scores from the comprehensive analysis result
-    let performance = 0, accessibility = 0, seo = 0, trust = 0, cro = 0;
+    let performance = 0, accessibility = 0, seo = 0, bestPractices = 0, cro = 0;
     let opportunities: Array<{title: string; description: string; potentialSavings: number; unit: string}> = [];
     
     // Extract PageSpeed scores (mobile preferred, fallback to desktop)
@@ -93,6 +93,7 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
       performance = scores.performance || 0;
       accessibility = scores.accessibility || 0;
       seo = scores.seo || 0;
+      bestPractices = scores.bestPractices || 0;
       
       // Extract opportunities from the opportunities field (includes both specific and generic)
       if (data.opportunities && data.opportunities.length > 0) {
@@ -104,16 +105,17 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
       }
     }
     
-    // Extract Trust and CRO scores from the comprehensive analysis
+    // Extract Best Practices and CRO scores from the comprehensive analysis
     if (data.trustAndCRO) {
-      trust = data.trustAndCRO.trust?.parsed?.score || 0;
+      // Note: Best Practices comes from PageSpeed data, not trustAndCRO
+      // We'll extract it from the PageSpeed scores above
       cro = data.trustAndCRO.cro?.parsed?.score || 0;
     }
     
     // Use the backend's calculated Overall score from unified.py
-    // This ensures zeros are properly counted: (96 + 82 + 91 + 0 + 90) / 5 = 71.8
-    const overallScore = data.overall_score !== undefined ? Math.round(data.overall_score) : 
-      Math.round((performance + accessibility + seo + trust + cro) / 5);
+    // The unified analyzer calculates: (Performance + Accessibility + Best_Practices + SEO + CRO) / 5
+    // This ensures all 5 metrics are properly included in the calculation
+    const overallScore = data.overall_score !== undefined ? Math.round(data.overall_score) : 0;
 
     // Convert backend response to frontend format
     const result: PageSpeedResult = {
@@ -123,7 +125,7 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
         performance: Math.round(performance),
         accessibility: Math.round(accessibility),
         seo: Math.round(seo),
-        trust: Math.round(trust),
+        bestPractices: Math.round(bestPractices),
         cro: Math.round(cro),
       },
       coreWebVitals: {
@@ -140,12 +142,10 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
 
     console.log('✅ Comprehensive analysis completed:', result);
     console.log('🔍 Score breakdown:', {
-      performance, accessibility, seo, trust, cro,
-      sum: performance + accessibility + seo + trust + cro,
-      count: 5,
-      average: (performance + accessibility + seo + trust + cro) / 5,
+      performance, accessibility, seo, bestPractices, cro,
       backendOverall: data.overall_score,
-      finalOverall: overallScore
+      finalOverall: overallScore,
+      note: 'Overall score calculated by unified.py backend (5 metrics: Performance + Accessibility + Best_Practices + SEO + CRO) / 5'
     });
     return result;
 
@@ -177,7 +177,7 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
           performance: 50,
           accessibility: 50,
           seo: 50,
-          trust: 50,
+          bestPractices: 50,
           cro: 50,
         },
         coreWebVitals: {
@@ -201,7 +201,7 @@ export async function runPageSpeedAudit(request: PageSpeedRequest): Promise<Page
         performance: 0,
         accessibility: 0,
         seo: 0,
-        trust: 0,
+        bestPractices: 0,
         cro: 0,
       },
       coreWebVitals: {

@@ -145,12 +145,12 @@ export default async function handler(
                 // Prefer mobile scores, fallback to desktop
                 const scores = mobile?.scores || desktop?.scores || {};
                 
-                // Calculate overall score (average of available scores)
+                // Calculate overall score (5 metrics: Performance + Accessibility + Best_Practices + SEO + CRO)
                 const availableScores = [
                   scores.performance,
                   scores.accessibility,
                   scores.seo,
-                  scoreResult.trustAndCRO?.trust?.parsed?.score || 0,
+                  scoreResult.pageSpeed?.mobile?.scores?.bestPractices || scoreResult.pageSpeed?.desktop?.scores?.bestPractices || 0,
                   scoreResult.trustAndCRO?.cro?.parsed?.score || 0
                 ].filter(score => score !== null && score !== undefined);
                 
@@ -207,7 +207,7 @@ export default async function handler(
                   score_perf: scores.performance || 0,
                   score_access: scores.accessibility || 0,
                   score_seo: scores.seo || 0,
-                  score_trust: scoreResult.trustAndCRO?.trust?.parsed?.score || 0,
+                  score_best_practices: scoreResult.pageSpeed?.mobile?.scores?.bestPractices || scoreResult.pageSpeed?.desktop?.scores?.bestPractices || 0,
                   score_cro: scoreResult.trustAndCRO?.cro?.parsed?.score || 0,
                   scoring_status: 'completed',
                   scoring_error: null,
@@ -218,7 +218,7 @@ export default async function handler(
                     performance_score: scores.performance || 0,
                     accessibility_score: scores.accessibility || 0,
                     seo_score: scores.seo || 0,
-                    trust_score: scoreResult.trustAndCRO?.trust?.parsed?.score || 0,
+                    best_practices_score: scoreResult.pageSpeed?.mobile?.scores?.bestPractices || scoreResult.pageSpeed?.desktop?.scores?.bestPractices || 0,
                     cro_score: scoreResult.trustAndCRO?.cro?.parsed?.score || 0,
                     opportunities: opportunities.map((opp: any) => ({
                       title: opp.title || 'Performance Improvement',
@@ -238,7 +238,7 @@ export default async function handler(
                   score_perf: 0,
                   score_access: 0,
                   score_seo: 0,
-                  score_trust: 0,
+                  score_best_practices: 0,
                   score_cro: 0,
                   scoring_status: 'no_website',
                   scoring_error: business.website ? 'Scoring failed' : 'No website',
@@ -257,7 +257,7 @@ export default async function handler(
               score_perf: 0,
               score_access: 0,
               score_seo: 0,
-              score_trust: 0,
+              score_best_practices: 0,
               score_cro: 0,
               scoring_status: 'failed',
               scoring_error: 'Backend scoring failed',
@@ -275,7 +275,7 @@ export default async function handler(
             score_perf: 0,
             score_access: 0,
             score_seo: 0,
-            score_trust: 0,
+            score_best_practices: 0,
             score_cro: 0,
             scoring_status: 'error',
             scoring_error: 'Scoring error occurred',
@@ -293,7 +293,7 @@ export default async function handler(
           score_perf: 0,
           score_access: 0,
           score_seo: 0,
-          score_trust: 0,
+          score_best_practices: 0,
           score_cro: 0,
           scoring_status: 'no_website',
           scoring_error: 'No website URL provided',

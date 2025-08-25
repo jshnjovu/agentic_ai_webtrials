@@ -264,7 +264,7 @@ export default function LeadGenSequentialResults({
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Performance</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Accessibility</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">SEO</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Trust</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Best Practices</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">CRO</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Overall</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -295,8 +295,8 @@ export default function LeadGenSequentialResults({
                           </div>
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-center">
-                          <div className={`inline-flex px-2 py-1 rounded text-sm font-medium ${getScoreColor(business.score_trust || 0)}`}>
-                            {business.score_trust || 0}
+                          <div className={`inline-flex px-2 py-1 rounded text-sm font-medium ${getScoreColor(business.score_best_practices || 0)}`}>
+                            {business.score_best_practices || 0}
                           </div>
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-center">

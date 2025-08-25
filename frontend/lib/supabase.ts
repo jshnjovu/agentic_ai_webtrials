@@ -92,7 +92,6 @@ export interface WebsiteScore {
   accessibility_score: number
   seo_score: number
   best_practices_score: number
-  trust_score?: number
   cro_score?: number
   scoring_method: 'lighthouse' | 'heuristic' | 'hybrid' | 'fallback'
   confidence_level: 'high' | 'medium' | 'low'

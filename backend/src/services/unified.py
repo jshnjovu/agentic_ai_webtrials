@@ -1680,19 +1680,18 @@ class UnifiedAnalyzer:
 
     
     def get_overall_score(self, analysis_result: Dict[str, Any]) -> float:
-        """Calculate overall score from all six categories including Best Practices, Trust and CRO."""
+        """Calculate overall score from five categories: Performance, Accessibility, Best Practices, SEO, and CRO."""
         values = [
             self.get_performance_score(analysis_result),
             self.get_accessibility_score(analysis_result),
             self.get_best_practices_score(analysis_result),
             self.get_seo_score(analysis_result),
-            self.get_trust_score(analysis_result),
             self.get_cro_score(analysis_result)
         ]
-        # Include all six categories - this provides a comprehensive website health score
-        # This ensures we always have 6 values to average
+        # Include five categories - this provides a comprehensive website health score
+        # Trust is excluded as it's not part of the core PageSpeed metrics
         total_score = sum(values)
-        overall_percentage = round(total_score / 6.0, 1)  # Round to 1 decimal place for cleaner display
+        overall_percentage = round(total_score / 5.0, 1)  # Round to 1 decimal place for cleaner display
         return overall_percentage
     
     def get_mobile_usability_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
