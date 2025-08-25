@@ -54,9 +54,6 @@ class UnifiedAnalyzer:
         # Initialize Google PageSpeed API service with optimizations
         if self.google_api_key:
             try:
-                log.debug(f"🔧 Initializing Google PageSpeed API service...")
-                log.debug(f"🔧 API Key: {self.google_api_key[:10]}...")
-                
                 # PERFORMANCE OPTIMIZATION 4: Disable discovery cache and use static discovery
                 self.pagespeed_service = build(
                     'pagespeedonline', 
@@ -64,25 +61,14 @@ class UnifiedAnalyzer:
                     developerKey=self.google_api_key,
                     cache_discovery=False,  # Disable to avoid file I/O
                     static_discovery=True   # Use static discovery for faster initialization
-                    # Note: Removed custom HTTP client to ensure compatibility
                 )
-                log.debug(f"✅ Google PageSpeed API service initialized successfully")
-                
-                # Test the service to ensure it's working
-                try:
-                    test_request = self.pagespeed_service.pagespeedapi().runpagespeed(url="https://example.com", strategy="MOBILE")
-                    log.debug(f"✅ Service test successful - service is ready")
-                except Exception as test_error:
-                    log.warning(f"⚠️ Service test failed: {test_error}")
-                    
+                log.debug(f"Google PageSpeed API service initialized with optimizations")
             except Exception as e:
-                log.error(f"❌ Failed to initialize Google PageSpeed API service: {e}")
-                log.error(f"❌ Error type: {type(e).__name__}")
-                log.error(f"❌ Error details: {str(e)}")
+                log.error(f"Failed to initialize Google PageSpeed API service: {e}")
                 self.pagespeed_service = None
         else:
             self.pagespeed_service = None
-            log.error(f"❌ Google PageSpeed API key NOT configured")
+            log.error(f"Google PageSpeed API key NOT configured")
         
         # PERFORMANCE OPTIMIZATION 5: Enhanced caching with faster lookups
         self.cache = {}
@@ -127,15 +113,31 @@ class UnifiedAnalyzer:
 
     def _init_http_client(self):
         """PERFORMANCE OPTIMIZATION: Initialize optimized HTTP client with connection pooling."""
-        # Note: We'll use the default Google API client HTTP handling for compatibility
-        # The custom urllib3 setup was causing compatibility issues
-        pass
+        import urllib3
+        
+        # Configure connection pooling for better performance
+        self.http_pool = urllib3.PoolManager(
+            num_pools=5,        # Number of connection pools
+            maxsize=20,         # Max connections per pool
+            block=False,        # Don't block when pool is full
+            timeout=urllib3.Timeout(
+                connect=5.0,    # Connection timeout
+                read=30.0       # Read timeout
+            ),
+            retries=urllib3.Retry(
+                total=1,        # Reduce retries for speed
+                backoff_factor=0.5,
+                status_forcelist=[500, 502, 503, 504]
+            )
+        )
 
     def _get_optimized_http_client(self):
         """PERFORMANCE OPTIMIZATION: Get optimized HTTP client for Google API."""
-        # Return None to use default Google API client HTTP handling
-        # This ensures compatibility while maintaining performance
-        return None
+        import google.auth.transport.requests
+        
+        # Create a proper HTTP client for Google API calls
+        # Use the default transport since our custom urllib3 setup was causing issues
+        return None  # Let Google API client use its default HTTP client
 
     # PERFORMANCE OPTIMIZATION 7: Async wrapper for sync API calls
     async def _call_pagespeed_api_async(self, url: str, strategy: str) -> Dict[str, Any]:
@@ -182,22 +184,13 @@ class UnifiedAnalyzer:
                 'prettyPrint': False  # Reduce response size
             }
             
-            log.debug(f"🔍 Making PageSpeed API call for {strategy} strategy: {url}")
-            log.debug(f"🔍 API parameters: {params}")
-            
             # Make the API call with timeout
             request = self.pagespeed_service.pagespeedapi().runpagespeed(**params)
-            
-            log.debug(f"🔍 API request created successfully, executing...")
             response = request.execute(num_retries=0)  # Disable automatic retries
             
-            log.debug(f"🔍 API response received successfully for {strategy}")
             return response
             
         except Exception as e:
-            log.error(f"❌ PageSpeed API call failed for {strategy}: {e}")
-            log.error(f"❌ Error type: {type(e).__name__}")
-            log.error(f"❌ Error details: {str(e)}")
             raise RuntimeError(f"Google PageSpeed API call failed: {e}")
 
     # PERFORMANCE OPTIMIZATION 9: Concurrent mobile + desktop analysis
@@ -207,15 +200,11 @@ class UnifiedAnalyzer:
         """Run PageSpeed analysis for BOTH mobile and desktop concurrently."""
         cache_key = f"pagespeed_{url}_both_v2"
         
-        log.debug(f"🚀 Starting PageSpeed analysis for {url} (mobile + desktop)")
-        log.debug(f"🔑 API Key status: {'SET' if self.google_api_key else 'NOT_SET'}")
-        log.debug(f"🔧 Service status: {'INITIALIZED' if self.pagespeed_service else 'NOT_INITIALIZED'}")
-        
         # Check cache first
         if cache_key in self.cache:
             cached_data = self.cache[cache_key]
             if time.time() - cached_data['timestamp'] < self.cache_ttl:
-                log.debug(f"📋 Returning cached PageSpeed result for {url}")
+                log.debug(f"Returning cached PageSpeed result for {url}")
                 self.analysis_stats["cache_hits"] += 1
                 return cached_data['data']
         
@@ -224,7 +213,7 @@ class UnifiedAnalyzer:
         # Check circuit breaker
         can_proceed, message = self.rate_limiter.can_make_request('google_pagespeed')
         if not can_proceed:
-            log.warning(f"🛑 Circuit breaker is OPEN for PageSpeed API: {message}")
+            log.warning(f"Circuit breaker is OPEN for PageSpeed API: {message}")
             return {
                 "mobile": None,
                 "desktop": None,
@@ -244,16 +233,12 @@ class UnifiedAnalyzer:
         
         async def analyze_strategy(strategy_name: str):
             """Analyze a single strategy with optimized retry logic."""
-            log.debug(f"📱 Starting analysis for {strategy_name} strategy")
-            
             for attempt in range(self.retry_config['max_attempts']):
                 try:
-                    log.debug(f"📡 {strategy_name} attempt {attempt + 1}/{self.retry_config['max_attempts']}")
                     data = await self._call_pagespeed_api_async(url, strategy_name)
                     
                     if data.get("error"):
                         error_msg = data["error"]["message"]
-                        log.error(f"❌ PageSpeed API returned error for {strategy_name}: {error_msg}")
                         
                         # Fast-fail for permanent errors
                         if any(permanent_error in error_msg for permanent_error in [
@@ -265,7 +250,6 @@ class UnifiedAnalyzer:
                                 "message": error_msg,
                                 "attempt": attempt + 1
                             })
-                            log.warning(f"🛑 Site {url} appears to be down/unresponsive for {strategy_name}. No retry needed.")
                             return None
                         
                         # Retry for recoverable errors
@@ -274,7 +258,6 @@ class UnifiedAnalyzer:
                                 self.retry_config['base_delay'] * (2 ** attempt),
                                 self.retry_config['max_delay']
                             )
-                            log.debug(f"🔄 Retrying {strategy_name} in {delay}s (attempt {attempt + 2})")
                             await asyncio.sleep(delay)
                             continue
                         else:
@@ -287,18 +270,14 @@ class UnifiedAnalyzer:
                             return None
 
                     # Process successful response
-                    log.debug(f"✅ {strategy_name} analysis successful, processing response...")
                     return self._process_pagespeed_response(data, strategy_name, url)
                     
                 except Exception as e:
-                    log.error(f"❌ {strategy_name} attempt {attempt + 1} failed: {e}")
-                    
                     if attempt < self.retry_config['max_attempts'] - 1:
                         delay = min(
                             self.retry_config['base_delay'] * (2 ** attempt),
                             self.retry_config['max_delay']
                         )
-                        log.debug(f"🔄 Retrying {strategy_name} in {delay}s (attempt {attempt + 2})")
                         await asyncio.sleep(delay)
                         continue
                     else:
@@ -308,7 +287,6 @@ class UnifiedAnalyzer:
                             "message": str(e),
                             "attempt": attempt + 1
                         })
-                        log.error(f"💥 All {strategy_name} attempts failed for {url}. Final error: {e}")
                         return None
             
             return None
@@ -349,19 +327,12 @@ class UnifiedAnalyzer:
             "analysis_time": time.time() - analysis_start
         }
         
-        log.debug(f"🔍 Final result structure:")
-        log.debug(f"🔍   - Mobile result: {'✅' if mobile_result else '❌'}")
-        log.debug(f"🔍   - Desktop result: {'✅' if desktop_result else '❌'}")
-        log.debug(f"🔍   - Errors: {len(failure_reasons)}")
-        log.debug(f"🔍   - Analysis time: {result['analysis_time']:.2f}s")
-        
         # Cache successful result
         if mobile_result or desktop_result:
             self.cache[cache_key] = {
                 'data': result,
                 'timestamp': time.time()
             }
-            log.debug(f"💾 Cached result for {url}")
         
         # Periodic cache cleanup (less frequent)
         self.cache_cleanup_counter += 1
@@ -369,7 +340,7 @@ class UnifiedAnalyzer:
             self._cleanup_cache()
             self.cache_cleanup_counter = 0
         
-        log.debug(f"✅ PageSpeed analysis completed in {result['analysis_time']:.2f}s for {url}")
+        log.debug(f"PageSpeed analysis completed in {result['analysis_time']:.2f}s for {url}")
         return result
 
     # PERFORMANCE OPTIMIZATION 12: Optimized response processing
@@ -379,10 +350,6 @@ class UnifiedAnalyzer:
             lighthouse = data.get("lighthouseResult", {})
             scores = lighthouse.get("categories", {})
             audits = lighthouse.get("audits", {})
-            
-            log.debug(f"🔍 Processing {strategy} response for {url}")
-            log.debug(f"🔍 Categories found: {list(scores.keys()) if scores else 'None'}")
-            log.debug(f"🔍 Raw scores data: {scores}")
             
             # PERFORMANCE OPTIMIZATION: Pre-calculate scores in batch
             adjusted_scores = self._calculate_all_scores(scores)
@@ -400,7 +367,6 @@ class UnifiedAnalyzer:
                 "opportunities": opportunities,
             }
             
-            log.debug(f"🔍 {strategy} strategy result scores: {strategy_result['scores']}")
             return strategy_result
             
         except Exception as e:
@@ -412,11 +378,10 @@ class UnifiedAnalyzer:
         """Calculate all scores in a single pass for better performance."""
         adjusted_scores = {}
         
-        # The PageSpeed API returns these exact keys
         score_mappings = {
             "performance": ["performance"],
             "accessibility": ["accessibility"],
-            "bestPractices": ["best-practices"],  # API returns "best-practices"
+            "bestPractices": ["best-practices", "bestPractices"],
             "seo": ["seo"]
         }
         
@@ -428,13 +393,9 @@ class UnifiedAnalyzer:
                     raw_score = score_data["score"]
                     if raw_score is not None:
                         score_value = self._calculate_score(raw_score)
-                        log.debug(f"🔍 Calculated {our_key} score: {raw_score} -> {score_value}")
                         break
-                else:
-                    log.debug(f"🔍 No score data found for {api_key}: {score_data}")
             adjusted_scores[our_key] = score_value
         
-        log.debug(f"🔍 Final adjusted scores: {adjusted_scores}")
         return adjusted_scores
 
     # PERFORMANCE OPTIMIZATION 14: Optimized metric extraction
@@ -696,505 +657,6 @@ class UnifiedAnalyzer:
         else:
             self.service_health["overall"] = "degraded"
 
-    # ------------------------------------------------------------------ #
-    # RESTORED METHODS FROM UNIFIED_OLD.PY
-    # ------------------------------------------------------------------ #
-    
-    def get_generic_opportunities(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Generate generic improvement opportunities when specific ones can't be generated.
-        This provides helpful guidance even when PageSpeed analysis fails.
-        """
-        generic_opportunities = []
-        
-        # Check if PageSpeed analysis failed
-        page_speed = analysis_result.get("pageSpeed", {})
-        if not page_speed or (page_speed.get("mobile") is None and page_speed.get("desktop") is None):
-            generic_opportunities.append({
-                "title": "Website Accessibility Issue",
-                "description": "The website appears to be inaccessible or experiencing technical difficulties. This prevents detailed performance analysis.",
-                "potentialSavings": 0,
-                "unit": "priority"
-            })
-            generic_opportunities.append({
-                "title": "Server Response Problem",
-                "description": "The website server is not responding properly, which affects user experience and search engine visibility.",
-                "potentialSavings": 0,
-                "unit": "priority"
-            })
-            generic_opportunities.append({
-                "title": "Technical Infrastructure Review",
-                "description": "Consider reviewing hosting, DNS configuration, and server health to resolve accessibility issues.",
-                "potentialSavings": 0,
-                "unit": "priority"
-            })
-            return generic_opportunities
-        
-        # Check for specific failure scenarios
-        errors = page_speed.get("errors", [])
-        if errors:
-            error_messages = [str(error) for error in errors]
-            error_text = "; ".join(error_messages[:2])  # Limit to first 2 errors
-            
-            if "400" in error_text or "Bad Request" in error_text:
-                generic_opportunities.append({
-                    "title": "Invalid Website Configuration",
-                    "description": f"The website returned an error (400 Bad Request), indicating configuration issues that prevent analysis.",
-                    "potentialSavings": 0,
-                    "unit": "priority"
-                })
-            elif "timeout" in error_text.lower():
-                generic_opportunities.append({
-                    "title": "Website Performance Issue",
-                    "description": "The website is taking too long to respond, indicating performance problems that need immediate attention.",
-                    "potentialSavings": 0,
-                    "unit": "priority"
-                })
-            else:
-                generic_opportunities.append({
-                    "title": "Technical Analysis Failure",
-                    "description": f"Unable to analyze website due to technical issues: {error_text}",
-                    "potentialSavings": 0,
-                    "unit": "priority"
-                })
-        
-        # Check if Trust/CRO analysis failed
-        trust_cro = analysis_result.get("trustAndCRO", {})
-        if trust_cro and trust_cro.get("errors") and len(trust_cro["errors"]) > 0:
-            generic_opportunities.append({
-                "title": "Security Assessment Incomplete",
-                "description": "Unable to complete security and conversion optimization analysis due to technical limitations.",
-                "potentialSavings": 0,
-                "unit": "priority"
-            })
-        
-        # If we have some opportunities but not enough, add generic ones
-        if len(generic_opportunities) < 3:
-            # Add general improvement suggestions
-            remaining_slots = 3 - len(generic_opportunities)
-            
-            general_suggestions = [
-                {
-                    "title": "Regular Performance Monitoring",
-                    "description": "Implement ongoing website performance monitoring to catch issues early and maintain optimal user experience.",
-                    "potentialSavings": 0,
-                    "unit": "ongoing"
-                },
-                {
-                    "title": "Mobile-First Optimization",
-                    "description": "Ensure your website is optimized for mobile devices, as mobile traffic continues to grow.",
-                    "potentialSavings": 0,
-                    "unit": "ongoing"
-                },
-                {
-                    "title": "Security Best Practices",
-                    "description": "Implement security headers, SSL certificates, and regular security audits to build user trust.",
-                    "potentialSavings": 0,
-                    "unit": "ongoing"
-                }
-            ]
-            
-            generic_opportunities.extend(general_suggestions[:remaining_slots])
-        
-        return generic_opportunities[:3]
-
-    def get_all_opportunities(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Get all available opportunities, combining specific PageSpeed opportunities with generic ones.
-        This ensures the UI always has meaningful improvement suggestions following PageSpeeds.md structure.
-        """
-        all_opportunities = []
-        
-        # The structure is {'pageSpeed': {'mobile': {...}, 'desktop': {...}, 'errors': [...]}}
-        # Check mobile opportunities first (following PageSpeeds.md mobile-first approach)
-        page_speed = analysis_result.get("pageSpeed", {})
-        mobile = page_speed.get("mobile")
-        if mobile and mobile.get("opportunities"):
-            for opp in mobile["opportunities"]:
-                # Ensure opportunity follows PageSpeeds.md structure
-                opportunity = {
-                    "title": opp.get("title", ""),
-                    "description": opp.get("description", ""),
-                    "potentialSavings": opp.get("potentialSavings", 0),
-                    "unit": opp.get("unit", "ms"),
-                    "auditId": opp.get("auditId", ""),
-                    "score": opp.get("score"),
-                    "type": opp.get("type", "opportunity"),
-                    "source": "mobile"
-                }
-                
-                # Truncate long titles to prevent UI overflow
-                if len(opportunity["title"]) > 60:
-                    opportunity["title"] = opportunity["title"][:57] + "..."
-                
-                all_opportunities.append(opportunity)
-        
-        # Add desktop opportunities if we don't have enough
-        if len(all_opportunities) < 5:  # Following PageSpeeds.md pattern of 5 opportunities
-            desktop = page_speed.get("desktop")
-            if desktop and desktop.get("opportunities"):
-                for opp in desktop["opportunities"]:
-                    if len(all_opportunities) >= 5:
-                        break
-                    
-                    # Avoid duplicates by checking title and auditId
-                    title = opp.get("title", "")
-                    audit_id = opp.get("auditId", "")
-                    
-                    is_duplicate = any(
-                        existing["title"] == title or 
-                        (audit_id and existing.get("auditId") == audit_id)
-                        for existing in all_opportunities
-                    )
-                    
-                    if not is_duplicate:
-                        opportunity = {
-                            "title": title,
-                            "description": opp.get("description", ""),
-                            "potentialSavings": opp.get("potentialSavings", 0),
-                            "unit": opp.get("unit", "ms"),
-                            "auditId": audit_id,
-                            "score": opp.get("score"),
-                            "type": opp.get("type", "opportunity"),
-                            "source": "desktop"
-                        }
-                        
-                        # Truncate long titles
-                        if len(opportunity["title"]) > 60:
-                            opportunity["title"] = opportunity["title"][:57] + "..."
-                        
-                        all_opportunities.append(opportunity)
-        
-        # If we don't have enough specific opportunities, add generic ones
-        if len(all_opportunities) < 5:
-            generic_opps = self.get_generic_opportunities(analysis_result)
-            for opp in generic_opps:
-                if len(all_opportunities) >= 5:
-                    break
-                
-                # Avoid duplicates
-                if not any(existing["title"] == opp["title"] for existing in all_opportunities):
-                    # Add source information for generic opportunities
-                    opp["source"] = "generic"
-                    opp["auditId"] = "generic"
-                    opp["type"] = "generic"
-                    all_opportunities.append(opp)
-        
-        # Ensure we return exactly 5 opportunities (following PageSpeeds.md pattern)
-        return all_opportunities[:5]
-
-    # ------------------------------------------------------------------ #
-    # TRUST ANALYSIS IMPLEMENTATION
-    # ------------------------------------------------------------------ #
-    
-    async def analyze_trust(self, url: str) -> Dict[str, Any]:
-        """Analyze website trust factors using PageSpeed data and security checks following PageSpeeds.md structure."""
-        try:
-            domain = urlparse(url).hostname
-            trust = {
-                "ssl": False,
-                "securityHeaders": [],
-                "score": 0,
-                "realData": {"ssl": True, "securityHeaders": True, "pagespeed": False},
-                "warnings": [],
-                "pagespeedInsights": {},
-                "auditData": {}
-            }
-
-            # 1. Protocol Security Check (from URL) - following PageSpeeds.md approach
-            if url.startswith("https://"):
-                trust["ssl"] = True
-                trust["score"] += 30
-                trust["pagespeedInsights"]["protocol"] = "HTTPS"
-            else:
-                trust["warnings"].append("Site uses HTTP instead of HTTPS")
-                trust["pagespeedInsights"]["protocol"] = "HTTP"
-
-            # 2. Enhanced SSL Check (if HTTPS) - following PageSpeeds.md security approach
-            if url.startswith("https://"):
-                try:
-                    import aiohttp
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"https://{domain}", timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as resp:
-                            trust["ssl"] = resp.status < 400
-                            if not trust["ssl"]:
-                                trust["score"] -= 10  # Penalty for HTTPS but SSL issues
-                            trust["pagespeedInsights"]["sslStatus"] = "Valid" if trust["ssl"] else "Issues"
-                except Exception as e:
-                    trust["warnings"].append(f"SSL check failed: {e}")
-                    trust["pagespeedInsights"]["sslStatus"] = "Check Failed"
-
-            # 3. Security Headers Check - following PageSpeeds.md security headers approach
-            try:
-                import aiohttp
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"https://{domain}", timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as resp:
-                        headers = {k.lower(): v for k, v in resp.headers.items()}
-
-                        # Security headers following PageSpeeds.md best practices
-                        sec_headers = [
-                            "x-frame-options",
-                            "x-content-type-options", 
-                            "strict-transport-security",
-                            "content-security-policy",
-                            "x-xss-protection",
-                            "referrer-policy",
-                            "permissions-policy"
-                        ]
-                        
-                        found_headers = [h for h in sec_headers if h in headers]
-                        trust["securityHeaders"] = found_headers
-                        trust["score"] += min(40, len(found_headers) * 8)
-                        trust["pagespeedInsights"]["securityHeaders"] = len(found_headers)
-                        
-                        # Add specific header details
-                        trust["auditData"]["securityHeaders"] = {
-                            "total": len(sec_headers),
-                            "found": len(found_headers),
-                            "missing": [h for h in sec_headers if h not in headers]
-                        }
-            except Exception as e:
-                trust["warnings"].append(f"Security headers check failed: {e}")
-
-            # 4. PageSpeed Best Practices Integration - following PageSpeeds.md structure
-            try:
-                # Get PageSpeed data to extract trust-related insights
-                pagespeed_result = await self.run_page_speed_analysis(url, "mobile")
-                
-                # Extract Best Practices score if available
-                mobile_data = pagespeed_result.get("mobile", {})
-                if mobile_data and "scores" in mobile_data:
-                    best_practices_score = mobile_data["scores"].get("bestPractices", 0)
-                    trust["pagespeedInsights"]["bestPracticesScore"] = best_practices_score
-                    
-                    # Use Best Practices score as a trust multiplier (following PageSpeeds.md approach)
-                    if best_practices_score >= 90:
-                        trust["score"] += 15
-                        trust["pagespeedInsights"]["bestPracticesRating"] = "Excellent"
-                    elif best_practices_score >= 70:
-                        trust["score"] += 10
-                        trust["pagespeedInsights"]["bestPracticesRating"] = "Good"
-                    elif best_practices_score >= 50:
-                        trust["score"] += 5
-                        trust["pagespeedInsights"]["bestPracticesRating"] = "Fair"
-                    else:
-                        trust["pagespeedInsights"]["bestPracticesRating"] = "Poor"
-                        trust["warnings"].append(f"Low Best Practices score: {best_practices_score}")
-                
-                # Analyze resource security from PageSpeed data
-                if mobile_data and "coreWebVitals" in mobile_data:
-                    trust["pagespeedInsights"]["resourceSecurity"] = "Analyzed via Best Practices"
-                
-                trust["realData"]["pagespeed"] = True
-                
-            except Exception as e:
-                trust["warnings"].append(f"PageSpeed trust analysis failed: {e}")
-                trust["pagespeedInsights"]["error"] = str(e)
-
-            # 5. Calculate final trust score with PageSpeed insights
-            trust["score"] = max(0, min(100, trust["score"]))
-            
-            # Add trust level classification following PageSpeeds.md approach
-            if trust["score"] >= 80:
-                trust["trustLevel"] = "High"
-            elif trust["score"] >= 60:
-                trust["trustLevel"] = "Medium"
-            elif trust["score"] >= 40:
-                trust["trustLevel"] = "Low"
-            else:
-                trust["trustLevel"] = "Very Low"
-            
-            # Add audit summary
-            trust["auditData"]["totalChecks"] = 3  # SSL, Security Headers, PageSpeed
-            trust["auditData"]["passedChecks"] = sum([
-                trust["ssl"],
-                len(trust["securityHeaders"]) > 0,
-                trust["realData"]["pagespeed"]
-            ])
-
-            return trust
-
-        except Exception as e:
-            raise RuntimeError(f"Trust analysis error: {e}") from e
-
-    # ------------------------------------------------------------------ #
-    # CRO ANALYSIS IMPLEMENTATION
-    # ------------------------------------------------------------------ #
-    
-    async def analyze_cro(self, url: str) -> Dict[str, Any]:
-        """Analyze Conversion Rate Optimization factors following PageSpeeds.md structure."""
-        try:
-            # Get PageSpeed data for both mobile and desktop
-            pagespeed_result = await self.run_page_speed_analysis(url, "mobile")
-            
-            # Extract mobile data
-            mobile_data = pagespeed_result.get("mobile", {})
-            desktop_data = pagespeed_result.get("desktop", {})
-            
-            # Get mobile usability data following PageSpeeds.md structure
-            mobile_usability = mobile_data.get("mobileUsability", {}) if mobile_data else {}
-            
-            # Extract scores following PageSpeeds.md format
-            mobile_scores = mobile_data.get("scores", {}) if mobile_data else {}
-            desktop_scores = desktop_data.get("scores", {}) if desktop_data else {}
-            
-            cro = {
-                "mobileFriendly": mobile_usability.get("mobileFriendly", False),
-                "mobileUsabilityScore": mobile_usability.get("score", 0),
-                "mobileIssues": mobile_usability.get("issues", []),
-                "pageSpeed": {
-                    "mobile": mobile_scores.get("performance", 0),
-                    "desktop": desktop_scores.get("performance", 0),
-                    "average": 0,
-                },
-                "userExperience": {
-                    "loadingTime": self.calculate_ux_score(mobile_data.get("coreWebVitals", {}) if mobile_data else {}),
-                    "interactivity": self.calculate_interactivity_score(
-                        mobile_data.get("serverMetrics", {}) if mobile_data else {}
-                    ),
-                    "visualStability": self.calculate_visual_stability_score(
-                        mobile_data.get("coreWebVitals", {}) if mobile_data else {}
-                    ),
-                },
-                "score": 0,
-                "realData": True,
-                "auditData": {
-                    "mobileAudits": len(mobile_usability.get("checks", {})) if mobile_usability else 0,
-                    "desktopAudits": len(desktop_scores) if desktop_scores else 0,
-                    "totalIssues": len(mobile_usability.get("issues", [])) if mobile_usability else 0
-                }
-            }
-
-            # Calculate average PageSpeed performance following PageSpeeds.md logic
-            mobile_perf = cro["pageSpeed"]["mobile"]
-            desktop_perf = cro["pageSpeed"]["desktop"]
-            
-            if mobile_perf and desktop_perf:
-                cro["pageSpeed"]["average"] = round((mobile_perf + desktop_perf) / 2)
-            elif mobile_perf:
-                cro["pageSpeed"]["average"] = mobile_perf
-            elif desktop_perf:
-                cro["pageSpeed"]["average"] = desktop_perf
-            else:
-                cro["pageSpeed"]["average"] = 0
-
-            # Calculate CRO score using PageSpeeds.md weighting approach
-            # Mobile usability (30%) + PageSpeed performance (40%) + User Experience (30%)
-            cro["score"] = round(
-                cro["mobileUsabilityScore"] * 0.3
-                + cro["pageSpeed"]["average"] * 0.4
-                + cro["userExperience"]["loadingTime"] * 0.3
-            )
-            
-            # Add CRO level classification
-            if cro["score"] >= 80:
-                cro["croLevel"] = "Excellent"
-            elif cro["score"] >= 60:
-                cro["croLevel"] = "Good"
-            elif cro["score"] >= 40:
-                cro["croLevel"] = "Fair"
-            else:
-                cro["croLevel"] = "Poor"
-
-            return cro
-
-        except Exception as e:
-            raise RuntimeError(f"CRO analysis error: {e}") from e
-
-    def calculate_ux_score(self, cwv: Dict[str, Any]) -> int:
-        """Calculate user experience score based on Core Web Vitals."""
-        score = 100
-        lcp = (cwv.get("largestContentfulPaint") or {}).get("value") or 0
-        if lcp > 4000:
-            score -= 30
-        elif lcp > 2500:
-            score -= 15
-
-        cls = (cwv.get("cumulativeLayoutShift") or {}).get("value") or 0
-        if cls > 0.25:
-            score -= 25
-        elif cls > 0.1:
-            score -= 10
-
-        return max(0, score)
-
-    def calculate_interactivity_score(self, sm: Dict[str, Any]) -> int:
-        """Calculate interactivity score based on server metrics."""
-        score = 100
-        tti = (sm.get("timeToInteractive") or {}).get("value") or 0
-        if tti > 5000:
-            score -= 30
-        elif tti > 3000:
-            score -= 15
-
-        tbt = (sm.get("totalBlockingTime") or {}).get("value") or 0
-        if tbt > 600:
-            score -= 25
-        elif tti > 300:
-            score -= 10
-
-        return max(0, score)
-
-    def calculate_visual_stability_score(self, cwv: Dict[str, Any]) -> int:
-        """Calculate visual stability score based on Cumulative Layout Shift."""
-        cls = (cwv.get("cumulativeLayoutShift") or {}).get("value") or 0
-        if cls <= 0.1:
-            return 100
-        if cls <= 0.25:
-            return 80
-        return 50
-
-    # ------------------------------------------------------------------ #
-    # BATCH AND COMPREHENSIVE ANALYSIS
-    # ------------------------------------------------------------------ #
-    
-    def _calculate_summary(self, result: Dict[str, Any], start_time: float = None) -> Dict[str, Any]:
-        """Calculate analysis summary with error handling."""
-        try:
-            total_errors = 0
-            services_completed = 0
-            
-            # Use provided start_time or current time if not provided
-            if start_time is None:
-                start_time = time.time()
-            
-            # Count errors from each service - handle None values safely
-            page_speed = result.get("pageSpeed")
-            if page_speed and isinstance(page_speed, dict) and page_speed.get("errors"):
-                total_errors += len(page_speed["errors"])
-            
-            trust_cro = result.get("trustAndCRO")
-            if trust_cro and isinstance(trust_cro, dict) and trust_cro.get("errors"):
-                total_errors += len(trust_cro["errors"])
-            
-            # Count completed services - handle None values safely
-            if page_speed and isinstance(page_speed, dict):
-                services_completed += 1
-
-            if trust_cro and isinstance(trust_cro, dict):
-                services_completed += 1
-            
-            # Calculate analysis duration if start_time is available
-            if start_time:
-                analysis_duration = int((time.time() - start_time) * 1000)
-            else:
-                analysis_duration = 0
-            
-            return {
-                "totalErrors": total_errors,
-                "servicesCompleted": services_completed,
-                "analysisDuration": analysis_duration
-            }
-            
-        except Exception as e:
-            log.error(f"❌ Error calculating summary: {e}")
-            return {
-                "totalErrors": 1,
-                "servicesCompleted": 0,
-                "analysisDuration": 0,
-                "errors": [f"Summary calculation failed: {e}"]
-            }
-    
     async def run_batch_analysis(
         self,
         urls: List[str],
@@ -1224,12 +686,9 @@ class UnifiedAnalyzer:
                     # Run comprehensive analysis
                     result = await self.run_comprehensive_analysis(url, strategy)
                     
-                    # Note: analysis_time is not part of whoispageSpeed.md structure
-                    # The summary.analysisDuration field provides timing information
-                    
                     # Update statistics
                     self.analysis_stats["total_analyses"] += 1
-                    if result.get("summary", {}).get("servicesCompleted", 0) > 0:
+                    if result and not result.get("error"):
                         self.analysis_stats["successful_analyses"] += 1
                     else:
                         self.analysis_stats["failed_analyses"] += 1
@@ -1269,11 +728,12 @@ class UnifiedAnalyzer:
                     "url": urls[i],
                     "analysisTimestamp": datetime.now().isoformat(),
                     "pageSpeed": None,
+                    "whois": None,
                     "trustAndCRO": None,
                     "summary": {
                         "totalErrors": 1,
                         "servicesCompleted": 0,
-                        "analysisDuration": 0,  # Can't calculate without start_time
+                        "analysisDuration": 0,
                         "errors": [f"Batch analysis failed: {str(result)}"]
                     }
                 })
@@ -1281,568 +741,509 @@ class UnifiedAnalyzer:
                 processed_results.append(result)
         
         return processed_results
-    
+
     async def run_comprehensive_analysis(
         self,
         url: str,
         strategy: str = "mobile"
     ) -> Dict[str, Any]:
         """
-        Run comprehensive website analysis integrating PageSpeed, Trust, and CRO insights.
+        Run comprehensive website analysis integrating PageSpeed insights.
         
         Args:
-            url: URL to analyze
+            url: Website URL to analyze
             strategy: Analysis strategy ('mobile' or 'desktop')
             
         Returns:
-            Dictionary with comprehensive analysis results
+            Comprehensive analysis results
         """
         try:
             start_time = time.time()
-            domain = urlparse(url).hostname
             
-            # Check rate limits
-            can_proceed, message = self.rate_limiter.can_make_request('comprehensive_speed')
-            if not can_proceed:
-                return {
-                    "success": False,
-                    "error": f"Rate limit exceeded: {message}",
-                    "error_code": "RATE_LIMIT_EXCEEDED",
-                    "context": "comprehensive_analysis",
-                    "url": url
-                }
+            # Run PageSpeed analysis
+            pagespeed_result = await self.run_page_speed_analysis(url, strategy)
             
-            # Initialize result following the analysis structure
+            # Calculate overall score
+            overall_score = self.get_overall_score(pagespeed_result)
+            
+            # Extract opportunities
+            opportunities = self.get_all_opportunities(pagespeed_result)
+            
+            # Analyze CRO factors
+            cro_analysis = self.analyze_cro_factors(pagespeed_result)
+            
+            # Build comprehensive result
             result = {
-                "domain": domain,
+                "domain": urlparse(url).hostname,
                 "url": url,
                 "analysisTimestamp": datetime.now().isoformat(),
-                "pageSpeed": None,
-                "trustAndCRO": None,
-                "summary": None
+                "pageSpeed": pagespeed_result,
+                "whois": None,  # Not implemented in current version
+                "trustAndCRO": {
+                    "cro": cro_analysis
+                },
+                "summary": {
+                    "totalErrors": 0,
+                    "servicesCompleted": 1 if pagespeed_result else 0,
+                    "analysisDuration": int((time.time() - start_time) * 1000),
+                    "errors": []
+                },
+                "overall_score": overall_score,
+                "opportunities": opportunities
             }
             
-            # 1. PageSpeed Analysis (now returns both mobile and desktop)
-            try:
-                pagespeed_result = await self.run_page_speed_analysis(url, strategy)
-                result["pageSpeed"] = {
-                    "domain": domain,
-                    "url": url,
-                    "timestamp": datetime.now().isoformat(),
-                    "mobile": pagespeed_result.get("mobile"),
-                    "desktop": pagespeed_result.get("desktop"),
-                    "errors": pagespeed_result.get("errors", [])
-                }
-                log.debug(f"✅ PageSpeed analysis completed for {url}")
-            except Exception as e:
-                log.warning(f"PageSpeed analysis failed for {url}: {e}")
-                result["pageSpeed"] = {
-                    "domain": domain,
-                    "url": url,
-                    "timestamp": datetime.now().isoformat(),
-                    "mobile": None,
-                    "desktop": None,
-                    "errors": [f"PageSpeed API error: {e}"]
-                }
+            # Add errors if any
+            if pagespeed_result and pagespeed_result.get("errors"):
+                result["summary"]["totalErrors"] = len(pagespeed_result["errors"])
+                result["summary"]["errors"] = [
+                    f"PageSpeed: {error.get('message', str(error))}" 
+                    for error in pagespeed_result["errors"]
+                ]
             
-            # Add generic opportunities when specific ones aren't available
-            if not result["pageSpeed"].get("mobile") and not result["pageSpeed"].get("desktop"):
-                # Add generic opportunities to the result for UI display
-                result["genericOpportunities"] = self.get_generic_opportunities(result)
-                log.debug(f"📋 Added {len(result['genericOpportunities'])} generic opportunities for {url}")
-            
-            # 3. Trust and CRO Analysis (using real implementations)
-            try:
-                # Run real TRUST analysis
-                trust_result = await self.analyze_trust(url)
-                trust_score = trust_result.get("score", 0)
-                
-                # Run real CRO analysis
-                cro_result = await self.analyze_cro(url)
-                cro_score = cro_result.get("score", 0)
-                
-                result["trustAndCRO"] = {
-                    "domain": domain,
-                    "url": url,
-                    "timestamp": datetime.now().isoformat(),
-                    "trust": {
-                        "rawResponse": trust_result,
-                        "parsed": {"score": trust_score},
-                        "errors": trust_result.get("warnings", [])
-                    },
-                    "cro": {
-                        "rawResponse": cro_result,
-                        "parsed": {"score": cro_score},
-                        "errors": []
-                    },
-                    "errors": []
-                }
-                log.debug(f"✅ Trust and CRO analysis completed for {url} - Trust: {trust_score}, CRO: {cro_score}")
-            except Exception as e:
-                log.warning(f"Trust and CRO analysis failed for {url}: {e}")
-                result["trustAndCRO"] = {
-                    "domain": domain,
-                    "url": url,
-                    "timestamp": datetime.now().isoformat(),
-                    "trust": {
-                        "rawResponse": {"score": 0, "warnings": [f"Trust analysis failed: {e}"]},
-                        "parsed": {"score": 0},
-                        "errors": [f"Trust analysis failed: {e}"]
-                    },
-                    "cro": {
-                        "rawResponse": {"score": 0, "errors": [f"CRO analysis failed: {e}"]},
-                        "parsed": {"score": 0},
-                        "errors": [f"CRO analysis failed: {e}"]
-                    },
-                    "errors": [f"Trust/CRO analysis failed: {e}"]
-                }
-            
-            # 6. Calculate summary following the analysis structure
-            result["summary"] = self._calculate_summary(result, start_time)
-            
-            # Update analysis statistics
-            self.analysis_stats["total_analyses"] += 1
-            if result["summary"]["servicesCompleted"] > 0:
-                self.analysis_stats["successful_analyses"] += 1
-            else:
-                self.analysis_stats["failed_analyses"] += 1
-            
-            # Record successful request
-            self.rate_limiter.record_request('comprehensive_speed', True)
-            
-            log.debug(f"✅ Comprehensive analysis completed for {url}")
             return result
             
         except Exception as e:
-            # Update analysis statistics for failed analysis
-            self.analysis_stats["total_analyses"] += 1
-            self.analysis_stats["failed_analyses"] += 1
-            
-            # Record failed request
-            self.rate_limiter.record_request('comprehensive_speed', False)
-            
             log.error(f"Comprehensive analysis failed for {url}: {e}")
-            # Return error structure following the analysis format
             return {
                 "domain": urlparse(url).hostname,
                 "url": url,
                 "analysisTimestamp": datetime.now().isoformat(),
-                "pageSpeed": {
-                    "domain": urlparse(url).hostname,
-                    "url": url,
-                    "timestamp": datetime.now().isoformat(),
-                    "mobile": None,
-                    "desktop": None,
-                    "errors": [f"Analysis failed: {str(e)}"]
-                },
+                "pageSpeed": None,
+                "whois": None,
                 "trustAndCRO": {
-                    "domain": urlparse(url).hostname,
-                    "url": url,
-                    "timestamp": datetime.now().isoformat(),
-                    "trust": None,
-                    "cro": None,
-                    "errors": [f"Analysis failed: {str(e)}"]
+                    "cro": {
+                        "score": 0,
+                        "factors": [],
+                        "recommendations": ["Analysis failed"],
+                        "overall_assessment": "Analysis error"
+                    }
                 },
                 "summary": {
                     "totalErrors": 1,
                     "servicesCompleted": 0,
-                    "analysisDuration": int((time.time() - start_time) * 1000),
+                    "analysisDuration": 0,
                     "errors": [f"Comprehensive analysis failed: {str(e)}"]
                 }
             }
 
-    # ------------------------------------------------------------------ #
-    # SERVICE HEALTH AND STATISTICS
-    # ------------------------------------------------------------------ #
-    
-    def get_service_health(self) -> Dict[str, Any]:
-        """Get comprehensive service health status."""
-        self._update_overall_health()
-        
-        return {
-            "service": "unified_analyzer",
-            "status": self.service_health["overall"],
-            "services": {
-                "pagespeed": self.service_health["pagespeed"],
-                "domain_analysis": "unavailable"
-            },
-            "rate_limits": {
-                "google_pagespeed": getattr(self.api_config, 'PAGESPEED_RATE_LIMIT_PER_MINUTE', 240),
-                "comprehensive_speed": getattr(self.api_config, 'COMPREHENSIVE_SPEED_RATE_LIMIT_PER_MINUTE', 30)
-            },
-            "cache_health": {
-                "total_entries": len(self.cache),
-                "cleanup_counter": self.cache_cleanup_counter,
-                "cleanup_threshold": self.cache_cleanup_threshold,
-                "size_threshold": self.cache_size_threshold,
-                "last_cleanup": "recent" if self.cache_cleanup_counter < self.cache_cleanup_threshold else "due"
-            },
-            "features": {
-                "caching": True,
-                "retry_logic": True,
-                "batch_processing": True,
-                "health_monitoring": True,
-                "rate_limiting": True,
-                "comprehensive_analysis": True,
-                "domain_analysis": False
-            }
-        }
-    
-    def get_analysis_statistics(self) -> Dict[str, Any]:
-        """Get analysis performance statistics."""
-        return {
-            "statistics": self.analysis_stats.copy(),
-            "cache_info": {
-                "total_entries": len(self.cache),
-                "cache_ttl": self.cache_ttl,
-                "cleanup_counter": self.cache_cleanup_counter,
-                "cleanup_threshold": self.cache_cleanup_threshold,
-                "size_threshold": self.cache_size_threshold
-            },
-            "retry_config": self.retry_config.copy()
-        }
-    
-    def force_cache_cleanup(self) -> Dict[str, Any]:
-        """Force immediate cache cleanup and return statistics."""
-        self._cleanup_cache()
-        self.cache_cleanup_counter = 0
-        
-        return {
-            "action": "forced_cache_cleanup",
-            "timestamp": time.time(),
-            "cache_size_before": len(self.cache),
-            "cache_info": self.get_analysis_statistics()["cache_info"]
-        }
-    
-    # --- New Ethos: Score Extraction Methods ---
-    
-    def _get_mobile_score(self, analysis_result: Dict[str, Any], key: str) -> Optional[int]:
-        """Prefer mobile score, fallback to desktop, following PageSpeeds.md structure.
+    def get_overall_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Calculate overall score from analysis results."""
+        try:
+            if not analysis_result:
+                return 0
+            
+            # Extract scores from PageSpeed results
+            mobile_scores = analysis_result.get("mobile", {}).get("scores", {})
+            desktop_scores = analysis_result.get("desktop", {}).get("scores", {})
+            
+            # Use mobile scores if available, fallback to desktop
+            scores = mobile_scores if mobile_scores else desktop_scores
+            
+            if not scores:
+                return 0
+            
+            # Calculate weighted average
+            performance = scores.get("performance", 0)
+            accessibility = scores.get("accessibility", 0)
+            seo = scores.get("seo", 0)
+            best_practices = scores.get("bestPractices", 0)
+            
+            # Weight performance more heavily
+            overall = (
+                performance * 0.4 +
+                accessibility * 0.2 +
+                seo * 0.2 +
+                best_practices * 0.2
+            )
+            
+            return round(overall)
+            
+        except Exception as e:
+            log.error(f"Error calculating overall score: {e}")
+            return 0
+
+    def get_performance_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get performance score from analysis results."""
+        try:
+            if not analysis_result:
+                return 0
+            
+            mobile_scores = analysis_result.get("mobile", {}).get("scores", {})
+            desktop_scores = analysis_result.get("desktop", {}).get("scores", {})
+            
+            scores = mobile_scores if mobile_scores else desktop_scores
+            return scores.get("performance", 0) if scores else 0
+            
+        except Exception as e:
+            log.error(f"Error getting performance score: {e}")
+            return 0
+
+    def get_accessibility_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get accessibility score from analysis results."""
+        try:
+            if not analysis_result:
+                return 0
+            
+            mobile_scores = analysis_result.get("mobile", {}).get("scores", {})
+            desktop_scores = analysis_result.get("desktop", {}).get("scores", {})
+            
+            scores = mobile_scores if mobile_scores else desktop_scores
+            return scores.get("accessibility", 0) if scores else 0
+            
+        except Exception as e:
+            log.error(f"Error getting accessibility score: {e}")
+            return 0
+
+    def get_seo_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get SEO score from analysis results."""
+        try:
+            if not analysis_result:
+                return 0
+            
+            mobile_scores = analysis_result.get("mobile", {}).get("scores", {})
+            desktop_scores = analysis_result.get("desktop", {}).get("scores", {})
+            
+            scores = mobile_scores if mobile_scores else desktop_scores
+            return scores.get("seo", 0) if scores else 0
+            
+        except Exception as e:
+            log.error(f"Error getting SEO score: {e}")
+            return 0
+
+    def get_best_practices_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get best practices score from analysis results."""
+        try:
+            if not analysis_result:
+                return 0
+            
+            mobile_scores = analysis_result.get("mobile", {}).get("scores", {})
+            desktop_scores = analysis_result.get("desktop", {}).get("scores", {})
+            
+            scores = mobile_scores if mobile_scores else desktop_scores
+            return scores.get("bestPractices", 0) if scores else 0
+            
+        except Exception as e:
+            log.error(f"Error getting best practices score: {e}")
+            return 0
+
+    def get_cro_score(self, analysis_result: Dict[str, Any]) -> int:
+        """Get CRO score from analysis results."""
+        try:
+            cro_analysis = self.analyze_cro_factors(analysis_result)
+            return cro_analysis.get("score", 0)
+        except Exception as e:
+            log.error(f"Error getting CRO score: {e}")
+            return 0
+
+    def analyze_cro_factors(self, analysis_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze Conversion Rate Optimization factors from PageSpeed results.
         
         Args:
-            analysis_result: The analysis result dictionary
-            key: The score key to look up (e.g., "performance", "accessibility", "seo")
+            analysis_result: PageSpeed analysis results
             
         Returns:
-            The score as an int if found, otherwise None
+            CRO analysis with factors and score
         """
-        # Check if we have PageSpeed data - the structure is {'pageSpeed': {'mobile': {...}, 'desktop': {...}, 'errors': [...]}}
-        page_speed = analysis_result.get("pageSpeed", {})
-        if not page_speed:
-            log.debug(f"🔍 No pageSpeed data found in analysis_result for key: {key}")
-            return None
-        
-        # Prefer mobile, fallback to desktop (following PageSpeeds.md mobile-first approach)
-        mobile = page_speed.get("mobile")
-        desktop = page_speed.get("desktop")
-        
-        log.debug(f"🔍 Looking for {key} score - mobile: {mobile is not None}, desktop: {desktop is not None}")
-        log.debug(f"🔍 Mobile data type: {type(mobile).__name__}")
-        log.debug(f"🔍 Desktop data type: {type(desktop).__name__}")
-        
-        # Try mobile first, then desktop
-        for strategy, data in [("mobile", mobile), ("desktop", desktop)]:
-            if data and isinstance(data, dict):
-                log.debug(f"🔍 Checking {strategy} data keys: {list(data.keys()) if data else 'None'}")
-                
-                # Check if we have scores in the new optimized structure
-                if "scores" in data:
-                    scores = data["scores"]
-                    log.debug(f"🔍 {strategy} scores data: {scores}")
-                    
-                    # Handle both naming conventions for Best Practices (PageSpeeds.md uses "best-practices")
-                    if key == "bestPractices":
-                        score = scores.get("bestPractices") or scores.get("best-practices")
-                    else:
-                        score = scores.get(key)
-                    
-                    log.debug(f"🔍 {strategy} {key} score found: {score}")
-                    
-                    if score is not None:
-                        log.debug(f"🔍 Found {key} score from {strategy}: {score} (type: {type(score)})")
-                        
-                        # Ensure we return an integer
-                        try:
-                            if isinstance(score, (int, float)):
-                                result = int(round(score))
-                                log.debug(f"🔍 Returning {key} score: {result}")
-                                return result
-                            elif isinstance(score, str):
-                                # Handle string scores (e.g., "0.95")
-                                result = int(round(float(score)))
-                                log.debug(f"🔍 Returning {key} score from string: {result}")
-                                return result
-                            else:
-                                log.warning(f"⚠️ Unexpected score type for {key}: {type(score)} - {score}")
-                                return None
-                        except (ValueError, TypeError) as e:
-                            log.warning(f"⚠️ Error converting score for {key}: {score} - {e}")
-                            return None
-                
-                # Also check for legacy structure compatibility
-                elif "scores" in data and isinstance(data["scores"], dict):
-                    scores = data["scores"]
-                    if key == "bestPractices":
-                        score = scores.get("bestPractices") or scores.get("best-practices")
-                    else:
-                        score = scores.get(key)
-                    
-                    if score is not None:
-                        log.debug(f"🔍 Found {key} score from {strategy} (legacy): {score}")
-                        try:
-                            if isinstance(score, (int, float)):
-                                return int(round(score))
-                            elif isinstance(score, str):
-                                return int(round(float(score)))
-                            else:
-                                return None
-                        except (ValueError, TypeError):
-                            return None
-        
-        log.debug(f"🔍 No {key} score found in any source")
-        return None
-    
-    def _get_trust_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
-        """Get the trust score from the analysis result."""
-        trust_and_cro = analysis_result.get("trustAndCRO")
-        if not trust_and_cro or not isinstance(trust_and_cro, dict):
-            return None
-        
-        trust = trust_and_cro.get("trust")
-        if trust and isinstance(trust, dict) and trust.get("parsed"):
-            try:
-                score = trust["parsed"]["score"]
-                if score is not None:
-                    return int(score)
-            except (ValueError, TypeError, KeyError):
-                pass
-        return None
-    
-    def _get_cro_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
-        """Get the CRO score from the analysis result."""
-        trust_and_cro = analysis_result.get("trustAndCRO")
-        if not trust_and_cro or not isinstance(trust_and_cro, dict):
-            return None
-        
-        cro = trust_and_cro.get("cro")
-        if cro and isinstance(cro, dict) and cro.get("parsed"):
-            try:
-                score = cro["parsed"]["score"]
-                if score is not None:
-                    return int(score)
-            except (ValueError, TypeError, KeyError):
-                pass
-        return None
-    
-    # --- Public KPI Properties ---
-    
-    def get_performance_score(self, analysis_result: Dict[str, Any]) -> int:
-        """Get performance score with mobile preference."""
-        return self._get_mobile_score(analysis_result, "performance") or 0
-    
-    def get_accessibility_score(self, analysis_result: Dict[str, Any]) -> int:
-        """Get accessibility score with mobile preference."""
-        return self._get_mobile_score(analysis_result, "accessibility") or 0
-    
-    def get_seo_score(self, analysis_result: Dict[str, Any]) -> int:
-        """Get SEO score with mobile preference."""
-        return self._get_mobile_score(analysis_result, "seo") or 0
-    
-    def get_best_practices_score(self, analysis_result: Dict[str, Any]) -> int:
-        """Get best practices score with mobile preference."""
-        return self._get_mobile_score(analysis_result, "bestPractices") or 0
-    
-    def get_trust_score(self, analysis_result: Dict[str, Any]) -> int:
-        """Get trust score."""
-        return self._get_trust_score(analysis_result) or 0
-    
-    def get_cro_score(self, analysis_result: Dict[str, Any]) -> int:
-        """Get CRO score."""
-        return self._get_cro_score(analysis_result) or 0
-    
-    def get_overall_score(self, analysis_result: Dict[str, Any]) -> float:
-        """Calculate overall score from five categories: Performance, Accessibility, Best Practices, SEO, and CRO."""
-        values = [
-            self.get_performance_score(analysis_result),
-            self.get_accessibility_score(analysis_result),
-            self.get_best_practices_score(analysis_result),
-            self.get_seo_score(analysis_result),
-            self.get_cro_score(analysis_result)
-        ]
-        # Include five categories - this provides a comprehensive website health score
-        # Trust is excluded as it's not part of the core PageSpeed metrics
-        total_score = sum(values)
-        overall_percentage = round(total_score / 5.0, 1)  # Round to 1 decimal place for cleaner display
-        return overall_percentage
-    
-    def get_mobile_usability_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
-        """Get the mobile usability score from PageSpeed data following PageSpeeds.md structure."""
-        page_speed = analysis_result.get("pageSpeed", {})
-        mobile = page_speed.get("mobile", {})
-        
-        if mobile and "mobileUsability" in mobile:
-            mobile_usability = mobile["mobileUsability"]
-            if mobile_usability and isinstance(mobile_usability, dict):
-                score = mobile_usability.get("score")
-                if score is not None:
-                    return int(score)
-        
-        # Fallback: check if we have mobile data but no mobileUsability
-        if mobile and "scores" in mobile:
-            # If we have mobile scores but no mobileUsability, calculate a basic score
-            # This handles cases where PageSpeed API doesn't return mobileUsability
-            log.debug("📱 No mobileUsability data found, calculating basic mobile score")
-            return None  # Return None to indicate no mobile usability data
-        
-        return None
-    
-    def get_top_issues(self, analysis_result: Dict[str, Any], max_issues: int = 5) -> List[str]:
-        """Get top issues from PageSpeed opportunities and mobile usability following PageSpeeds.md structure."""
-        issues = []
-        
-        # Get opportunities from mobile data (following PageSpeeds.md mobile-first approach)
-        page_speed = analysis_result.get("pageSpeed", {})
-        mobile = page_speed.get("mobile", {})
-        if mobile and "opportunities" in mobile:
-            for opp in mobile["opportunities"][:max_issues]:
-                title = opp.get("title", "")
-                if title:
-                    # Truncate long titles to prevent UI overflow
-                    if len(title) > 50:
-                        title = title[:47] + "..."
-                    issues.append(title)
-        
-        # If we don't have enough issues, add mobile usability issues
-        if len(issues) < max_issues and mobile and "mobileUsability" in mobile:
-            mobile_usability = mobile["mobileUsability"]
-            if mobile_usability and isinstance(mobile_usability, dict):
-                mobile_issues = mobile_usability.get("issues", [])
-                for issue in mobile_issues:
-                    if len(issues) >= max_issues:
-                        break
-                    # Truncate long issues
-                    if len(issue) > 50:
-                        issue = issue[:47] + "..."
-                    issues.append(issue)
-        
-        # If still not enough, add desktop opportunities
-        if len(issues) < max_issues:
-            desktop = page_speed.get("desktop", {})
-            if desktop and "opportunities" in desktop:
-                for opp in desktop["opportunities"]:
-                    if len(issues) >= max_issues:
-                        break
-                    title = opp.get("title", "")
-                    if title and title not in issues:
-                        # Truncate long titles
-                        if len(title) > 50:
-                            title = title[:47] + "..."
-                        issues.append(title)
-        
-        # If still not enough, add generic issues from analysis errors
-        if len(issues) < max_issues:
-            errors = page_speed.get("errors", [])
-            for error in errors:
-                if len(issues) >= max_issues:
-                    break
-                if isinstance(error, dict):
-                    error_msg = error.get("message", str(error))
-                else:
-                    error_msg = str(error)
-                
-                # Convert error messages to user-friendly issue descriptions
-                if "FAILED_DOCUMENT_REQUEST" in error_msg:
-                    issue = "Website accessibility issue - server not responding"
-                elif "net::ERR_TIMED_OUT" in error_msg:
-                    issue = "Website performance issue - connection timeout"
-                elif "400" in error_msg or "Bad Request" in error_msg:
-                    issue = "Website configuration issue - invalid request"
-                else:
-                    issue = f"Technical analysis issue - {error_msg[:30]}..."
-                
-                if issue not in issues:
-                    issues.append(issue)
-        
-        return issues[:max_issues]
-
-    def get_mobile_issues(self, checks: Dict[str, bool]) -> List[str]:
-        """Get mobile usability issues from checks dictionary."""
-        issues = []
-        if not checks["hasViewportMetaTag"]:
-            issues.append("Missing viewport meta tag")
-        if not checks["contentSizedCorrectly"]:
-            issues.append("Content not sized correctly for viewport")
-        if not checks["tapTargetsAppropriateSize"]:
-            issues.append("Tap targets too small")
-        if not checks["textReadable"]:
-            issues.append("Text too small to read")
-        return issues
-
-    # ------------------------------------------------------------------ #
-    # DEBUG AND DIAGNOSTIC METHODS
-    # ------------------------------------------------------------------ #
-    
-    def debug_analysis_structure(self, analysis_result: Dict[str, Any]) -> Dict[str, Any]:
-        """Debug method to inspect the analysis result structure and help diagnose score extraction issues."""
-        debug_info = {
-            "has_pageSpeed": "pageSpeed" in analysis_result,
-            "pageSpeed_type": type(analysis_result.get("pageSpeed")).__name__,
-            "pageSpeed_keys": list(analysis_result.get("pageSpeed", {}).keys()) if analysis_result.get("pageSpeed") else [],
-            "mobile_data": None,
-            "desktop_data": None,
-            "mobile_scores": None,
-            "desktop_scores": None,
-            "extracted_scores": {}
-        }
-        
-        page_speed = analysis_result.get("pageSpeed", {})
-        if page_speed:
-            mobile = page_speed.get("mobile")
-            desktop = page_speed.get("desktop")
+        try:
+            if not analysis_result:
+                return {
+                    "score": 0,
+                    "factors": [],
+                    "recommendations": [],
+                    "overall_assessment": "No data available"
+                }
             
-            debug_info["mobile_data"] = {
-                "type": type(mobile).__name__,
-                "keys": list(mobile.keys()) if mobile and isinstance(mobile, dict) else None,
-                "has_scores": "scores" in mobile if mobile and isinstance(mobile, dict) else False
+            # Extract PageSpeed data
+            mobile = analysis_result.get("mobile", {})
+            desktop = analysis_result.get("desktop", {})
+            
+            # Use mobile data if available, fallback to desktop
+            page_data = mobile if mobile else desktop
+            
+            if not page_data:
+                return {
+                    "score": 0,
+                    "factors": [],
+                    "recommendations": [],
+                    "overall_assessment": "No PageSpeed data available"
+                }
+            
+            # Analyze CRO factors based on PageSpeed metrics
+            cro_factors = []
+            recommendations = []
+            total_score = 0
+            max_possible_score = 0
+            
+            # Factor 1: Page Load Speed (Performance Score)
+            performance_score = page_data.get("scores", {}).get("performance", 0)
+            if performance_score >= 90:
+                cro_factors.append({
+                    "factor": "Page Load Speed",
+                    "score": 25,
+                    "status": "excellent",
+                    "description": f"Fast loading page ({performance_score}/100) - excellent for conversions"
+                })
+                total_score += 25
+            elif performance_score >= 70:
+                cro_factors.append({
+                    "factor": "Page Load Speed",
+                    "score": 20,
+                    "status": "good",
+                    "description": f"Good loading speed ({performance_score}/100) - good for conversions"
+                })
+                total_score += 20
+            elif performance_score >= 50:
+                cro_factors.append({
+                    "factor": "Page Load Speed",
+                    "score": 15,
+                    "status": "fair",
+                    "description": f"Moderate loading speed ({performance_score}/100) - may impact conversions"
+                })
+                total_score += 15
+                recommendations.append("Optimize page load speed to improve user experience and conversions")
+            else:
+                cro_factors.append({
+                    "factor": "Page Load Speed",
+                    "score": 0,
+                    "status": "poor",
+                    "description": f"Slow loading page ({performance_score}/100) - likely hurting conversions"
+                })
+                recommendations.append("Critical: Page load speed is severely impacting conversion rates")
+            
+            max_possible_score += 25
+            
+            # Factor 2: Mobile Usability
+            mobile_usability = page_data.get("mobileUsability", {})
+            if mobile_usability and mobile_usability.get("mobileFriendly", False):
+                mobile_score = mobile_usability.get("score", 0)
+                if mobile_score >= 90:
+                    cro_factors.append({
+                        "factor": "Mobile Usability",
+                        "score": 25,
+                        "status": "excellent",
+                        "description": f"Excellent mobile experience ({mobile_score}/100) - great for mobile conversions"
+                    })
+                    total_score += 25
+                elif mobile_score >= 70:
+                    cro_factors.append({
+                        "factor": "Mobile Usability",
+                        "score": 20,
+                        "status": "good",
+                        "description": f"Good mobile experience ({mobile_score}/100) - good for mobile conversions"
+                    })
+                    total_score += 20
+                else:
+                    cro_factors.append({
+                        "factor": "Mobile Usability",
+                        "score": 10,
+                        "status": "fair",
+                        "description": f"Fair mobile experience ({mobile_score}/100) - may impact mobile conversions"
+                    })
+                    total_score += 10
+                    recommendations.append("Improve mobile usability to capture mobile conversions")
+            else:
+                cro_factors.append({
+                    "factor": "Mobile Usability",
+                    "score": 0,
+                    "status": "poor",
+                    "description": "Mobile usability not available or poor - likely hurting mobile conversions"
+                })
+                recommendations.append("Critical: Mobile usability needs immediate attention for mobile conversions")
+            
+            max_possible_score += 25
+            
+            # Factor 3: Core Web Vitals
+            core_web_vitals = page_data.get("coreWebVitals", {})
+            cwv_score = 0
+            
+            if core_web_vitals:
+                # Check Largest Contentful Paint (LCP)
+                lcp = core_web_vitals.get("largestContentfulPaint", {})
+                if lcp and lcp.get("value"):
+                    lcp_value = lcp.get("value", 0)
+                    if lcp_value <= 2500:  # Good LCP
+                        cwv_score += 8
+                    elif lcp_value <= 4000:  # Needs improvement
+                        cwv_score += 4
+                    else:  # Poor
+                        cwv_score += 0
+                
+                # Check First Input Delay (FID)
+                fid = core_web_vitals.get("firstInputDelay", {})
+                if fid and fid.get("value"):
+                    fid_value = fid.get("value", 0)
+                    if fid_value <= 100:  # Good FID
+                        cwv_score += 8
+                    elif fid_value <= 300:  # Needs improvement
+                        cwv_score += 4
+                    else:  # Poor
+                        cwv_score += 0
+                
+                # Check Cumulative Layout Shift (CLS)
+                cls = core_web_vitals.get("cumulativeLayoutShift", {})
+                if cls and cls.get("value"):
+                    cls_value = cls.get("value", 0)
+                    if cls_value <= 0.1:  # Good CLS
+                        cwv_score += 9
+                    elif cls_value <= 0.25:  # Needs improvement
+                        cwv_score += 4
+                    else:  # Poor
+                        cwv_score += 0
+            
+            cro_factors.append({
+                "factor": "Core Web Vitals",
+                "score": cwv_score,
+                "status": "good" if cwv_score >= 20 else "fair" if cwv_score >= 10 else "poor",
+                "description": f"Core Web Vitals score: {cwv_score}/25 - impacts user experience and conversions"
+            })
+            total_score += cwv_score
+            max_possible_score += 25
+            
+            if cwv_score < 20:
+                recommendations.append("Optimize Core Web Vitals to improve user experience and conversion rates")
+            
+            # Factor 4: Accessibility
+            accessibility_score = page_data.get("scores", {}).get("accessibility", 0)
+            if accessibility_score >= 90:
+                cro_factors.append({
+                    "factor": "Accessibility",
+                    "score": 15,
+                    "status": "excellent",
+                    "description": f"Excellent accessibility ({accessibility_score}/100) - inclusive for all users"
+                })
+                total_score += 15
+            elif accessibility_score >= 70:
+                cro_factors.append({
+                    "factor": "Accessibility",
+                    "score": 12,
+                    "status": "good",
+                    "description": f"Good accessibility ({accessibility_score}/100) - good for most users"
+                })
+                total_score += 12
+            elif accessibility_score >= 50:
+                cro_factors.append({
+                    "factor": "Accessibility",
+                    "score": 8,
+                    "status": "fair",
+                    "description": f"Fair accessibility ({accessibility_score}/100) - may exclude some users"
+                })
+                total_score += 8
+                recommendations.append("Improve accessibility to reach a broader audience and improve conversions")
+            else:
+                cro_factors.append({
+                    "factor": "Accessibility",
+                    "score": 0,
+                    "status": "poor",
+                    "description": f"Poor accessibility ({accessibility_score}/100) - excluding many potential customers"
+                })
+                recommendations.append("Critical: Poor accessibility is limiting your potential customer base")
+            
+            max_possible_score += 15
+            
+            # Factor 5: SEO (indirect CRO impact)
+            seo_score = page_data.get("scores", {}).get("seo", 0)
+            if seo_score >= 90:
+                cro_factors.append({
+                    "factor": "SEO Foundation",
+                    "score": 10,
+                    "status": "excellent",
+                    "description": f"Excellent SEO ({seo_score}/100) - good for organic traffic and conversions"
+                })
+                total_score += 10
+            elif seo_score >= 70:
+                cro_factors.append({
+                    "factor": "SEO Foundation",
+                    "score": 8,
+                    "status": "good",
+                    "description": f"Good SEO ({seo_score}/100) - good for organic traffic"
+                })
+                total_score += 8
+            elif seo_score >= 50:
+                cro_factors.append({
+                    "factor": "SEO Foundation",
+                    "score": 5,
+                    "status": "fair",
+                    "description": f"Fair SEO ({seo_score}/100) - may limit organic traffic"
+                })
+                total_score += 5
+                recommendations.append("Improve SEO to increase organic traffic and potential conversions")
+            else:
+                cro_factors.append({
+                    "factor": "SEO Foundation",
+                    "score": 0,
+                    "status": "poor",
+                    "description": f"Poor SEO ({seo_score}/100) - limiting organic traffic and conversions"
+                })
+                recommendations.append("Critical: Poor SEO is limiting your organic traffic and conversion opportunities")
+            
+            max_possible_score += 10
+            
+            # Calculate final CRO score
+            final_cro_score = round((total_score / max_possible_score) * 100) if max_possible_score > 0 else 0
+            
+            # Determine overall assessment
+            if final_cro_score >= 80:
+                overall_assessment = "Excellent conversion optimization potential"
+            elif final_cro_score >= 60:
+                overall_assessment = "Good conversion optimization potential with room for improvement"
+            elif final_cro_score >= 40:
+                overall_assessment = "Fair conversion optimization potential, significant improvements needed"
+            else:
+                overall_assessment = "Poor conversion optimization potential, immediate action required"
+            
+            return {
+                "score": final_cro_score,
+                "factors": cro_factors,
+                "recommendations": recommendations,
+                "overall_assessment": overall_assessment,
+                "total_score": total_score,
+                "max_possible_score": max_possible_score
             }
             
-            debug_info["desktop_data"] = {
-                "type": type(desktop).__name__,
-                "keys": list(desktop.keys()) if desktop and isinstance(desktop, dict) else None,
-                "has_scores": "scores" in desktop if desktop and isinstance(desktop, dict) else False
+        except Exception as e:
+            log.error(f"Error analyzing CRO factors: {e}")
+            return {
+                "score": 0,
+                "factors": [],
+                "recommendations": ["Error analyzing CRO factors"],
+                "overall_assessment": "Analysis error"
             }
-            
-            if mobile and isinstance(mobile, dict) and "scores" in mobile:
-                debug_info["mobile_scores"] = mobile["scores"]
-            
-            if desktop and isinstance(desktop, dict) and "scores" in desktop:
-                debug_info["desktop_scores"] = desktop["scores"]
-            
-            # Test score extraction for each category
-            for category in ["performance", "accessibility", "bestPractices", "seo"]:
-                score = self._get_mobile_score(analysis_result, category)
-                debug_info["extracted_scores"][category] = score
-        
-        return debug_info
 
-    # ------------------------------------------------------------------ #
-    # COMPLETE CLASS IMPLEMENTATION
-    # ------------------------------------------------------------------ #
-    
-    def _get_empty_core_web_vitals(self) -> Dict[str, None]:
-        """Get empty core web vitals structure."""
-        return {
-            "largestContentfulPaint": None,
-            "firstInputDelay": None,
-            "cumulativeLayoutShift": None,
-            "firstContentfulPaint": None,
-            "speedIndex": None,
-        }
-    
-    def _get_empty_server_metrics(self) -> Dict[str, None]:
-        """Get empty server metrics structure."""
-        return {
-            "serverResponseTime": None,
-            "totalBlockingTime": None,
-            "timeToInteractive": None,
-        }
+    def get_all_opportunities(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get all opportunities from analysis results."""
+        try:
+            if not analysis_result:
+                return []
+            
+            opportunities = []
+            
+            # Get opportunities from mobile analysis
+            mobile_opps = analysis_result.get("mobile", {}).get("opportunities", [])
+            if mobile_opps:
+                opportunities.extend(mobile_opps)
+            
+            # Get opportunities from desktop analysis
+            desktop_opps = analysis_result.get("desktop", {}).get("opportunities", [])
+            if desktop_opps:
+                opportunities.extend(desktop_opps)
+            
+            # Remove duplicates and sort by potential savings
+            unique_opps = {}
+            for opp in opportunities:
+                key = opp.get("auditId", opp.get("title", ""))
+                if key not in unique_opps or opp.get("potentialSavings", 0) > unique_opps[key].get("potentialSavings", 0):
+                    unique_opps[key] = opp
+            
+            # Sort by potential savings and return top 10
+            sorted_opps = sorted(
+                unique_opps.values(), 
+                key=lambda x: x.get("potentialSavings", 0), 
+                reverse=True
+            )
+            
+            return sorted_opps[:10]
+            
+        except Exception as e:
+            log.error(f"Error getting opportunities: {e}")
+            return []

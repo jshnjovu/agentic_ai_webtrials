@@ -151,7 +151,7 @@ export default async function handler(
                   scores.accessibility,
                   scores.seo,
                   scoreResult.pageSpeed?.mobile?.scores?.bestPractices || scoreResult.pageSpeed?.desktop?.scores?.bestPractices || 0,
-                  scoreResult.trustAndCRO?.cro?.parsed?.score || 0
+                  scoreResult.trustAndCRO?.cro?.score || 0
                 ].filter(score => score !== null && score !== undefined);
                 
                 const overallScore = availableScores.length > 0 
@@ -166,6 +166,20 @@ export default async function handler(
                   opportunities = scoreResult.pageSpeed.mobile.opportunities;
                 } else if (scoreResult.pageSpeed?.desktop?.opportunities) {
                   opportunities = scoreResult.pageSpeed.desktop.opportunities;
+                }
+                
+                // Add CRO-specific opportunities and recommendations
+                if (scoreResult.trustAndCRO?.cro?.recommendations) {
+                  const croRecommendations = scoreResult.trustAndCRO.cro.recommendations.map((rec: string, index: number) => ({
+                    title: `CRO: ${rec}`,
+                    description: rec,
+                    potentialSavings: 0,
+                    unit: "priority",
+                    auditId: `cro-recommendation-${index}`,
+                    score: 0,
+                    type: "cro_recommendation"
+                  }));
+                  opportunities = [...opportunities, ...croRecommendations];
                 }
                 
                 // If no PageSpeed opportunities, check for generic opportunities (for down websites)
@@ -208,7 +222,7 @@ export default async function handler(
                   score_access: scores.accessibility || 0,
                   score_seo: scores.seo || 0,
                   score_best_practices: scoreResult.pageSpeed?.mobile?.scores?.bestPractices || scoreResult.pageSpeed?.desktop?.scores?.bestPractices || 0,
-                  score_cro: scoreResult.trustAndCRO?.cro?.parsed?.score || 0,
+                  score_cro: scoreResult.trustAndCRO?.cro?.score || 0,
                   scoring_status: 'completed',
                   scoring_error: null,
                   last_scored: new Date().toISOString(),
@@ -219,7 +233,7 @@ export default async function handler(
                     accessibility_score: scores.accessibility || 0,
                     seo_score: scores.seo || 0,
                     best_practices_score: scoreResult.pageSpeed?.mobile?.scores?.bestPractices || scoreResult.pageSpeed?.desktop?.scores?.bestPractices || 0,
-                    cro_score: scoreResult.trustAndCRO?.cro?.parsed?.score || 0,
+                    cro_score: scoreResult.trustAndCRO?.cro?.score || 0,
                     opportunities: opportunities.map((opp: any) => ({
                       title: opp.title || 'Performance Improvement',
                       description: opp.description || 'Website optimization opportunity',
