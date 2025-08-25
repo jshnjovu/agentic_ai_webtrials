@@ -80,6 +80,17 @@ async def root_health():
         "version": settings.APP_VERSION
     }
 
+# @app.post("/save_results")
+# def save_results(data: List[BusinessData]):
+#     os.makedirs("../data", exist_ok=True)
+#     filename = f"../data/output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+#     fieldnames = list(BusinessData.model_fields.keys())
+#     with open(filename, mode="w", newline="", encoding="utf-8") as f:
+#         writer = csv.DictWriter(f, fieldnames=fieldnames)
+#         writer.writeheader()
+#         for row in data:
+#             writer.writerow(row.model_dump())
+#     return {"status": "success", "file": filename}
 
 if __name__ == "__main__":
     import uvicorn

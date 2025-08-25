@@ -19,11 +19,10 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
-from .domain_analysis import DomainAnalysisService
 from ..core.config import get_api_config
 from ..services.rate_limiter import RateLimiter
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 log = logging.getLogger("unified")
 
 
@@ -40,7 +39,7 @@ class UnifiedAnalyzer:
                     'pagespeedonline', 
                     'v5', 
                     developerKey=self.google_api_key,
-                    cache_discovery=False  # Disable discovery cache to avoid file_cache issues
+                    cache_discovery=True  # Disable discovery cache to avoid file_cache issues
                 )
                 log.debug(f"✅ Google PageSpeed API service initialized with key: {self.google_api_key[:10]}...")
             except Exception as e:
@@ -84,13 +83,8 @@ class UnifiedAnalyzer:
             "cache_misses": 0
         }
 
-        try:
-            self.domain_service = DomainAnalysisService()
-            self.service_health["domain_analysis"] = "healthy"
-        except Exception as e:
-            log.warning("⚠️ Domain Analysis Service not available: %s", e)
-            self.domain_service = None
-            self.service_health["domain_analysis"] = "unhealthy"
+        # Domain analysis service removed - using placeholder values
+        self.service_health["domain_analysis"] = "unavailable"
         
         # Check PageSpeed API key and service
         if self.google_api_key and self.pagespeed_service:
@@ -123,7 +117,7 @@ class UnifiedAnalyzer:
             params = {
                 'url': url,
                 'strategy': strategy_upper,
-                'category': ['PERFORMANCE', 'ACCESSIBILITY', 'SEO'],  # Request all three categories
+                'category': ['PERFORMANCE', 'ACCESSIBILITY', 'BEST_PRACTICES', 'SEO'],  # Request all four categories
                 'prettyPrint': True
             }
             
@@ -149,6 +143,15 @@ class UnifiedAnalyzer:
                     for cat_name, cat_data in categories.items():
                         if isinstance(cat_data, dict) and "score" in cat_data:
                             log.debug(f"   - {cat_name} score: {cat_data['score']}")
+                        else:
+                            log.debug(f"   - {cat_name}: {cat_data}")
+                
+                # Special debugging for Best Practices
+                best_practices = categories.get("bestPractices", {})
+                log.debug(f"🔍 Best Practices category data: {best_practices}")
+                if isinstance(best_practices, dict):
+                    log.debug(f"🔍 Best Practices score field: {best_practices.get('score')}")
+                    log.debug(f"🔍 Best Practices keys: {list(best_practices.keys())}")
             
             return response
             
@@ -185,29 +188,88 @@ class UnifiedAnalyzer:
 
     # ------------------------------------------------------------------ #
     def extract_opportunities(self, audits: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Extract opportunities from Google PageSpeed API audits."""
+        """Extract opportunities from Google PageSpeed API audits following PageSpeeds.md structure."""
         opportunities = []
-        for key, audit in audits.items():
-            # Google PageSpeed API opportunities have different structure
-            # Check if this is an opportunity audit
-            if (audit.get("details", {}).get("type") == "opportunity" or 
-                audit.get("score") is not None and audit.get("score") < 1.0):
-                
-                # Get potential savings - try different field names
-                potential_savings = audit.get("numericValue") or audit.get("value") or 0
-                
-                # Only include if there are actual savings or it's a failed audit
-                if potential_savings > 0 or (audit.get("score") is not None and audit.get("score") < 1.0):
-                    opportunities.append({
-                        "title": audit.get("title", "Performance Opportunity"),
-                        "description": audit.get("description", "Improve this aspect of your website"),
-                        "potentialSavings": round(potential_savings) if potential_savings > 0 else 0,
-                        "unit": audit.get("numericUnit") or audit.get("unit", "ms"),
-                    })
         
-        # Sort by potential savings (highest first) and return top 3
+        # Define opportunity audit types based on PageSpeeds.md structure
+        opportunity_audit_types = [
+            "opportunity",  # Standard opportunity type
+            "diagnostics",  # Diagnostic audits that can suggest improvements
+            "metricSavings"  # Audits with potential savings
+        ]
+        
+        for key, audit in audits.items():
+            try:
+                # Check if this is an opportunity audit based on multiple criteria
+                is_opportunity = False
+                
+                # 1. Check if it's explicitly marked as an opportunity
+                if audit.get("details", {}).get("type") in opportunity_audit_types:
+                    is_opportunity = True
+                
+                # 2. Check if it has metric savings (performance opportunities)
+                elif audit.get("metricSavings"):
+                    is_opportunity = True
+                
+                # 3. Check if it's a failed audit with score < 1.0
+                elif audit.get("score") is not None and audit.get("score") < 1.0:
+                    # Only include certain types of failed audits as opportunities
+                    failed_opportunity_types = [
+                        "uses-webp-images", "unused-javascript", "unused-css-rules",
+                        "render-blocking-resources", "uses-optimized-images",
+                        "modern-image-formats", "uses-text-compression"
+                    ]
+                    if key in failed_opportunity_types:
+                        is_opportunity = True
+                
+                if is_opportunity:
+                    # Extract potential savings - try different field names from PageSpeeds.md
+                    potential_savings = 0
+                    unit = "ms"
+                    
+                    # Check for metricSavings first (most reliable)
+                    if audit.get("metricSavings"):
+                        # Sum up all metric savings
+                        savings_values = []
+                        for metric, value in audit["metricSavings"].items():
+                            if isinstance(value, (int, float)) and value > 0:
+                                savings_values.append(value)
+                        if savings_values:
+                            potential_savings = sum(savings_values)
+                            unit = "ms"
+                    
+                    # Fallback to numericValue or value
+                    if potential_savings == 0:
+                        potential_savings = audit.get("numericValue") or audit.get("value") or 0
+                        unit = audit.get("numericUnit") or audit.get("unit", "ms")
+                    
+                    # Only include if there are actual savings or it's a significant failed audit
+                    if potential_savings > 0 or (audit.get("score") is not None and audit.get("score") < 0.5):
+                        # Get title and description following PageSpeeds.md format
+                        title = audit.get("title", "Performance Opportunity")
+                        description = audit.get("description", "Improve this aspect of your website")
+                        
+                        # Truncate long titles to prevent UI overflow
+                        if len(title) > 60:
+                            title = title[:57] + "..."
+                        
+                        opportunities.append({
+                            "title": title,
+                            "description": description,
+                            "potentialSavings": round(potential_savings) if potential_savings > 0 else 0,
+                            "unit": unit,
+                            "auditId": key,  # Include audit ID for reference
+                            "score": audit.get("score"),  # Include original score
+                            "type": audit.get("details", {}).get("type", "opportunity")
+                        })
+                        
+            except Exception as e:
+                log.debug(f"⚠️ Error processing audit {key}: {e}")
+                continue
+        
+        # Sort by potential savings (highest first) and return top 5 (following PageSpeeds.md pattern)
         opportunities.sort(key=lambda x: x["potentialSavings"], reverse=True)
-        return opportunities[:3]
+        return opportunities[:5]
 
     def get_generic_opportunities(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -267,15 +329,7 @@ class UnifiedAnalyzer:
                     "unit": "priority"
                 })
         
-        # Check if WHOIS analysis failed
-        whois = analysis_result.get("whois", {})
-        if whois and whois.get("errors") and len(whois["errors"]) > 0:
-            generic_opportunities.append({
-                "title": "Domain Information Unavailable",
-                "description": "Unable to retrieve domain registration information, which may affect trust and credibility assessment.",
-                "potentialSavings": 0,
-                "unit": "priority"
-            })
+
         
         # Check if Trust/CRO analysis failed
         trust_cro = analysis_result.get("trustAndCRO", {})
@@ -320,62 +374,87 @@ class UnifiedAnalyzer:
     def get_all_opportunities(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Get all available opportunities, combining specific PageSpeed opportunities with generic ones.
-        This ensures the UI always has meaningful improvement suggestions to display.
+        This ensures the UI always has meaningful improvement suggestions following PageSpeeds.md structure.
         """
         all_opportunities = []
         
         # The structure is {'pageSpeed': {'mobile': {...}, 'desktop': {...}, 'errors': [...]}}
-        # Check mobile opportunities first
+        # Check mobile opportunities first (following PageSpeeds.md mobile-first approach)
         page_speed = analysis_result.get("pageSpeed", {})
         mobile = page_speed.get("mobile")
         if mobile and mobile.get("opportunities"):
             for opp in mobile["opportunities"]:
-                # Truncate long titles to prevent UI overflow
-                title = opp.get("title", "")
-                if len(title) > 30:
-                    title = title[:27] + "..."
-                
-                all_opportunities.append({
-                    "title": title,
+                # Ensure opportunity follows PageSpeeds.md structure
+                opportunity = {
+                    "title": opp.get("title", ""),
                     "description": opp.get("description", ""),
                     "potentialSavings": opp.get("potentialSavings", 0),
-                    "unit": opp.get("unit", "ms")
-                })
+                    "unit": opp.get("unit", "ms"),
+                    "auditId": opp.get("auditId", ""),
+                    "score": opp.get("score"),
+                    "type": opp.get("type", "opportunity"),
+                    "source": "mobile"
+                }
+                
+                # Truncate long titles to prevent UI overflow
+                if len(opportunity["title"]) > 60:
+                    opportunity["title"] = opportunity["title"][:57] + "..."
+                
+                all_opportunities.append(opportunity)
         
         # Add desktop opportunities if we don't have enough
-        if len(all_opportunities) < 3:
+        if len(all_opportunities) < 5:  # Following PageSpeeds.md pattern of 5 opportunities
             desktop = page_speed.get("desktop")
             if desktop and desktop.get("opportunities"):
                 for opp in desktop["opportunities"]:
-                    if len(all_opportunities) >= 3:
+                    if len(all_opportunities) >= 5:
                         break
                     
-                    # Avoid duplicates by checking title
+                    # Avoid duplicates by checking title and auditId
                     title = opp.get("title", "")
-                    if not any(existing["title"] == title for existing in all_opportunities):
-                        # Truncate long titles
-                        if len(title) > 30:
-                            title = title[:27] + "..."
-                        
-                        all_opportunities.append({
+                    audit_id = opp.get("auditId", "")
+                    
+                    is_duplicate = any(
+                        existing["title"] == title or 
+                        (audit_id and existing.get("auditId") == audit_id)
+                        for existing in all_opportunities
+                    )
+                    
+                    if not is_duplicate:
+                        opportunity = {
                             "title": title,
                             "description": opp.get("description", ""),
                             "potentialSavings": opp.get("potentialSavings", 0),
-                            "unit": opp.get("unit", "ms")
-                        })
+                            "unit": opp.get("unit", "ms"),
+                            "auditId": audit_id,
+                            "score": opp.get("score"),
+                            "type": opp.get("type", "opportunity"),
+                            "source": "desktop"
+                        }
+                        
+                        # Truncate long titles
+                        if len(opportunity["title"]) > 60:
+                            opportunity["title"] = opportunity["title"][:57] + "..."
+                        
+                        all_opportunities.append(opportunity)
         
         # If we don't have enough specific opportunities, add generic ones
-        if len(all_opportunities) < 3:
+        if len(all_opportunities) < 5:
             generic_opps = self.get_generic_opportunities(analysis_result)
             for opp in generic_opps:
-                if len(all_opportunities) >= 3:
+                if len(all_opportunities) >= 5:
                     break
+                
                 # Avoid duplicates
                 if not any(existing["title"] == opp["title"] for existing in all_opportunities):
+                    # Add source information for generic opportunities
+                    opp["source"] = "generic"
+                    opp["auditId"] = "generic"
+                    opp["type"] = "generic"
                     all_opportunities.append(opp)
         
-        # Ensure we return exactly 3 opportunities
-        return all_opportunities[:3]
+        # Ensure we return exactly 5 opportunities (following PageSpeeds.md pattern)
+        return all_opportunities[:5]
 
     # ------------------------------------------------------------------ #
     async def run_page_speed_analysis(
@@ -478,12 +557,15 @@ class UnifiedAnalyzer:
 
                     log.debug(f"✅ {strategy_name.capitalize()} analysis successful for {url}")
                     log.debug(f"📊 Raw scores from API: {scores}")
+                    log.debug(f"🔍 Best Practices raw data: {scores.get('bestPractices', 'NOT_FOUND')}")
                     
                     # Debug: Log detailed score information
                     log.debug(f"🔍 Detailed score extraction for {strategy_name}:")
-                    for category in ["performance", "accessibility", "seo"]:
+                    for category in ["performance", "accessibility", "bestPractices", "seo"]:
                         category_data = scores.get(category, {})
+                        log.debug(f"🔍 {category} category data: {category_data}")
                         raw_score = category_data.get("score") if isinstance(category_data, dict) else None
+                        log.debug(f"🔍 {category} raw score: {raw_score} (type: {type(raw_score)})")
                         calculated_score = self._calculate_score(raw_score)
                         log.debug(f"   - {category}: raw={raw_score}, calculated={calculated_score}")
                     
@@ -506,6 +588,18 @@ class UnifiedAnalyzer:
                     else:
                         adjusted_scores["accessibility"] = 0
                         log.debug(f"📝 No accessibility score found for {strategy_name} - this is normal for some sites")
+                    
+                    # Best Practices might not always be available
+                    # Handle both naming conventions: "best-practices" (API) and "bestPractices" (our code)
+                    best_practices_score = scores.get("best-practices", {}) or scores.get("bestPractices", {})
+                    if isinstance(best_practices_score, dict) and "score" in best_practices_score:
+                        raw_bp_score = best_practices_score["score"]
+                        log.debug(f"🔍 Best Practices raw score for {strategy_name}: {raw_bp_score} (type: {type(raw_bp_score)})")
+                        adjusted_scores["bestPractices"] = self._calculate_score(raw_bp_score)
+                        log.debug(f"🔍 Best Practices calculated score for {strategy_name}: {adjusted_scores['bestPractices']}")
+                    else:
+                        adjusted_scores["bestPractices"] = 0
+                        log.debug(f"📝 No Best Practices score found for {strategy_name} - raw data: {best_practices_score}")
                     
                     # SEO might not always be available
                     seo_score = scores.get("seo", {})
@@ -677,39 +771,72 @@ class UnifiedAnalyzer:
     def analyze_mobile_usability_from_pagespeed(
         self, audits: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Analyze mobile usability from Google PageSpeed API audits."""
-        # Google PageSpeed API mobile usability audits
-        checks = {
-            "hasViewportMetaTag": (audits.get("viewport") or {}).get("score") == 1,
-            "contentSizedCorrectly": (audits.get("content-width") or {}).get("score") == 1,
-            "tapTargetsAppropriateSize": (audits.get("tap-targets") or {}).get("score") == 1,
-            "textReadable": (audits.get("font-size") or {}).get("score") == 1,
-            "isResponsive": True,  # Assume responsive by default
+        """Analyze mobile usability from Google PageSpeed API audits following PageSpeeds.md structure."""
+        # Google PageSpeed API mobile usability audits - using exact keys from PageSpeeds.md
+        mobile_audits = {
+            "viewport": "hasViewportMetaTag",
+            "content-width": "contentSizedCorrectly", 
+            "tap-targets": "tapTargetsAppropriateSize",
+            "font-size": "textReadable",
+            "image-size-responsive": "imageSizeResponsive"
         }
-
+        
+        checks = {}
+        issues = []
+        
+        # Process each mobile audit following PageSpeeds.md structure
+        for audit_key, check_name in mobile_audits.items():
+            audit = audits.get(audit_key, {})
+            
+            if audit:
+                # Check if audit passed (score == 1.0) or failed (score < 1.0)
+                score = audit.get("score")
+                if score is not None:
+                    checks[check_name] = score == 1.0
+                    
+                    # If failed, add to issues list
+                    if score < 1.0:
+                        audit_title = audit.get("title", f"Mobile {audit_key} issue")
+                        issues.append(audit_title)
+                else:
+                    # If no score, assume it passed (default behavior)
+                    checks[check_name] = True
+            else:
+                # Audit not found, assume it passed (default behavior)
+                checks[check_name] = True
+        
+        # Add responsive design check (always true for modern sites)
+        checks["isResponsive"] = True
+        
         # Count passed checks
         passed = sum(bool(v) for v in checks.values())
-        mobile_score = round((passed / len(checks)) * 100)
-
-        # Get mobile-specific issues
-        issues = self.get_mobile_issues(checks)
+        total_checks = len(checks)
+        mobile_score = round((passed / total_checks) * 100) if total_checks > 0 else 100
         
-        # Add any additional mobile-specific issues from audits
-        mobile_audits = ["viewport", "content-width", "tap-targets", "font-size"]
-        for audit_key in mobile_audits:
+        # Determine mobile friendliness based on score
+        mobile_friendly = mobile_score >= 80
+        
+        # Add any additional mobile-specific issues from other relevant audits
+        additional_mobile_audits = [
+            "uses-responsive-images", "image-aspect-ratio", "legacy-javascript"
+        ]
+        
+        for audit_key in additional_mobile_audits:
             audit = audits.get(audit_key, {})
-            if audit.get("score") is not None and audit.get("score") < 1.0:
-                # This audit failed, add it to issues if not already covered
+            if audit and audit.get("score") is not None and audit.get("score") < 1.0:
                 audit_title = audit.get("title", f"Mobile {audit_key} issue")
                 if audit_title not in issues:
                     issues.append(audit_title)
-
+        
         return {
-            "mobileFriendly": mobile_score >= 80,
+            "mobileFriendly": mobile_friendly,
             "score": mobile_score,
             "checks": checks,
             "issues": issues,
             "realData": True,
+            "auditCount": len(checks),
+            "passedChecks": passed,
+            "totalChecks": total_checks
         }
 
     # ------------------------------------------------------------------ #
@@ -765,75 +892,296 @@ class UnifiedAnalyzer:
     def _update_overall_health(self):
         """Update overall service health status."""
         try:
-            if (self.service_health["pagespeed"] == "healthy" and 
-                self.service_health["domain_analysis"] == "healthy"):
+            # Since domain_analysis is now unavailable (removed), 
+            # overall health depends only on PageSpeed service
+            if self.service_health["pagespeed"] == "healthy":
                 self.service_health["overall"] = "healthy"
-            elif (self.service_health["pagespeed"] == "healthy" or 
-                  self.service_health["domain_analysis"] == "healthy"):
-                self.service_health["overall"] = "degraded"
-            elif (self.service_health["pagespeed"] == "unknown" and 
-                  self.service_health["domain_analysis"] == "unknown"):
+            elif self.service_health["pagespeed"] == "unconfigured":
+                self.service_health["overall"] = "unhealthy"
+            elif self.service_health["pagespeed"] == "unknown":
                 self.service_health["overall"] = "unknown"
             else:
-                self.service_health["overall"] = "unhealthy"
+                self.service_health["overall"] = "degraded"
         except Exception as e:
             log.error(f"Error updating service health: {e}")
             self.service_health["overall"] = "unknown"
     
-
+    # ------------------------------------------------------------------ #
+    # TRUST ANALYSIS IMPLEMENTATION
+    # ------------------------------------------------------------------ #
     
-
-    
-
-    
-
-    
-    async def _get_whois_data(self, url: str) -> Dict[str, Any]:
-        """Get WHOIS data using existing domain analysis service."""
+    async def analyze_trust(self, url: str) -> Dict[str, Any]:
+        """Analyze website trust factors using PageSpeed data and security checks following PageSpeeds.md structure."""
         try:
             domain = urlparse(url).hostname
-            
-            if not self.domain_service:
-                return {
-                    "domain": domain,
-                    "timestamp": datetime.now().isoformat(),
-                    "whois": None,
-                    "whoisHistory": None,
-                    "domainAge": None,
-                    "credibility": None,
-                    "errors": ["Domain analysis service not available"]
-                }
-            
-            # Use existing domain analysis service
-            domain_analysis = await self.domain_service.analyze_domain(domain)
-            
-            return {
-                "domain": domain,
-                "timestamp": datetime.now().isoformat(),
-                "whois": {
-                    "rawResponse": domain_analysis["whois"],
-                    "parsed": domain_analysis["whois"]
-                },
-                "whoisHistory": {
-                    "rawResponse": domain_analysis["whoisHistory"],
-                    "parsed": domain_analysis["whoisHistory"]
-                },
-                "domainAge": domain_analysis["domainAge"],
-                "credibility": domain_analysis["analysis"]["credibility"],
-                "errors": []
+            trust = {
+                "ssl": False,
+                "securityHeaders": [],
+                "score": 0,
+                "realData": {"ssl": True, "securityHeaders": True, "pagespeed": False},
+                "warnings": [],
+                "pagespeedInsights": {},
+                "auditData": {}
             }
+
+            # 1. Protocol Security Check (from URL) - following PageSpeeds.md approach
+            if url.startswith("https://"):
+                trust["ssl"] = True
+                trust["score"] += 30
+                trust["pagespeedInsights"]["protocol"] = "HTTPS"
+            else:
+                trust["warnings"].append("Site uses HTTP instead of HTTPS")
+                trust["pagespeedInsights"]["protocol"] = "HTTP"
+
+            # 2. Enhanced SSL Check (if HTTPS) - following PageSpeeds.md security approach
+            if url.startswith("https://"):
+                try:
+                    import aiohttp
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"https://{domain}", timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as resp:
+                            trust["ssl"] = resp.status < 400
+                            if not trust["ssl"]:
+                                trust["score"] -= 10  # Penalty for HTTPS but SSL issues
+                            trust["pagespeedInsights"]["sslStatus"] = "Valid" if trust["ssl"] else "Issues"
+                except Exception as e:
+                    trust["warnings"].append(f"SSL check failed: {e}")
+                    trust["pagespeedInsights"]["sslStatus"] = "Check Failed"
+
+            # 3. Security Headers Check - following PageSpeeds.md security headers approach
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"https://{domain}", timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as resp:
+                        headers = {k.lower(): v for k, v in resp.headers.items()}
+
+                        # Security headers following PageSpeeds.md best practices
+                        sec_headers = [
+                            "x-frame-options",
+                            "x-content-type-options", 
+                            "strict-transport-security",
+                            "content-security-policy",
+                            "x-xss-protection",
+                            "referrer-policy",
+                            "permissions-policy"
+                        ]
+                        
+                        found_headers = [h for h in sec_headers if h in headers]
+                        trust["securityHeaders"] = found_headers
+                        trust["score"] += min(40, len(found_headers) * 8)
+                        trust["pagespeedInsights"]["securityHeaders"] = len(found_headers)
+                        
+                        # Add specific header details
+                        trust["auditData"]["securityHeaders"] = {
+                            "total": len(sec_headers),
+                            "found": len(found_headers),
+                            "missing": [h for h in sec_headers if h not in headers]
+                        }
+            except Exception as e:
+                trust["warnings"].append(f"Security headers check failed: {e}")
+
+            # 4. PageSpeed Best Practices Integration - following PageSpeeds.md structure
+            try:
+                # Get PageSpeed data to extract trust-related insights
+                pagespeed_result = await self.run_page_speed_analysis(url, "mobile")
+                
+                # Extract Best Practices score if available
+                mobile_data = pagespeed_result.get("mobile", {})
+                if mobile_data and "scores" in mobile_data:
+                    best_practices_score = mobile_data["scores"].get("bestPractices", 0)
+                    trust["pagespeedInsights"]["bestPracticesScore"] = best_practices_score
+                    
+                    # Use Best Practices score as a trust multiplier (following PageSpeeds.md approach)
+                    if best_practices_score >= 90:
+                        trust["score"] += 15
+                        trust["pagespeedInsights"]["bestPracticesRating"] = "Excellent"
+                    elif best_practices_score >= 70:
+                        trust["score"] += 10
+                        trust["pagespeedInsights"]["bestPracticesRating"] = "Good"
+                    elif best_practices_score >= 50:
+                        trust["score"] += 5
+                        trust["pagespeedInsights"]["bestPracticesRating"] = "Fair"
+                    else:
+                        trust["pagespeedInsights"]["bestPracticesRating"] = "Poor"
+                        trust["warnings"].append(f"Low Best Practices score: {best_practices_score}")
+                
+                # Analyze resource security from PageSpeed data
+                if mobile_data and "coreWebVitals" in mobile_data:
+                    trust["pagespeedInsights"]["resourceSecurity"] = "Analyzed via Best Practices"
+                
+                trust["realData"]["pagespeed"] = True
+                
+            except Exception as e:
+                trust["warnings"].append(f"PageSpeed trust analysis failed: {e}")
+                trust["pagespeedInsights"]["error"] = str(e)
+
+            # 5. Calculate final trust score with PageSpeed insights
+            trust["score"] = max(0, min(100, trust["score"]))
             
+            # Add trust level classification following PageSpeeds.md approach
+            if trust["score"] >= 80:
+                trust["trustLevel"] = "High"
+            elif trust["score"] >= 60:
+                trust["trustLevel"] = "Medium"
+            elif trust["score"] >= 40:
+                trust["trustLevel"] = "Low"
+            else:
+                trust["trustLevel"] = "Very Low"
+            
+            # Add audit summary
+            trust["auditData"]["totalChecks"] = 3  # SSL, Security Headers, PageSpeed
+            trust["auditData"]["passedChecks"] = sum([
+                trust["ssl"],
+                len(trust["securityHeaders"]) > 0,
+                trust["realData"]["pagespeed"]
+            ])
+
+            return trust
+
         except Exception as e:
-            log.error(f"❌ WHOIS data retrieval failed for {url}: {e}")
-            return {
-                "domain": urlparse(url).hostname,
-                "timestamp": datetime.now().isoformat(),
-                "whois": None,
-                "whoisHistory": None,
-                "domainAge": None,
-                "credibility": None,
-                "errors": [f"WHOIS lookup failed: {e}"]
+            raise RuntimeError(f"Trust analysis error: {e}") from e
+
+
+
+    # ------------------------------------------------------------------ #
+    # CRO ANALYSIS IMPLEMENTATION
+    # ------------------------------------------------------------------ #
+    
+    async def analyze_cro(self, url: str) -> Dict[str, Any]:
+        """Analyze Conversion Rate Optimization factors following PageSpeeds.md structure."""
+        try:
+            # Get PageSpeed data for both mobile and desktop
+            pagespeed_result = await self.run_page_speed_analysis(url, "mobile")
+            
+            # Extract mobile data
+            mobile_data = pagespeed_result.get("mobile", {})
+            desktop_data = pagespeed_result.get("desktop", {})
+            
+            # Get mobile usability data following PageSpeeds.md structure
+            mobile_usability = mobile_data.get("mobileUsability", {}) if mobile_data else {}
+            
+            # Extract scores following PageSpeeds.md format
+            mobile_scores = mobile_data.get("scores", {}) if mobile_data else {}
+            desktop_scores = desktop_data.get("scores", {}) if desktop_data else {}
+            
+            cro = {
+                "mobileFriendly": mobile_usability.get("mobileFriendly", False),
+                "mobileUsabilityScore": mobile_usability.get("score", 0),
+                "mobileIssues": mobile_usability.get("issues", []),
+                "pageSpeed": {
+                    "mobile": mobile_scores.get("performance", 0),
+                    "desktop": desktop_scores.get("performance", 0),
+                    "average": 0,
+                },
+                "userExperience": {
+                    "loadingTime": self.calculate_ux_score(mobile_data.get("coreWebVitals", {}) if mobile_data else {}),
+                    "interactivity": self.calculate_interactivity_score(
+                        mobile_data.get("serverMetrics", {}) if mobile_data else {}
+                    ),
+                    "visualStability": self.calculate_visual_stability_score(
+                        mobile_data.get("coreWebVitals", {}) if mobile_data else {}
+                    ),
+                },
+                "score": 0,
+                "realData": True,
+                "auditData": {
+                    "mobileAudits": len(mobile_usability.get("checks", {})) if mobile_usability else 0,
+                    "desktopAudits": len(desktop_scores) if desktop_scores else 0,
+                    "totalIssues": len(mobile_usability.get("issues", [])) if mobile_usability else 0
+                }
             }
+
+            # Calculate average PageSpeed performance following PageSpeeds.md logic
+            mobile_perf = cro["pageSpeed"]["mobile"]
+            desktop_perf = cro["pageSpeed"]["desktop"]
+            
+            if mobile_perf and desktop_perf:
+                cro["pageSpeed"]["average"] = round((mobile_perf + desktop_perf) / 2)
+            elif mobile_perf:
+                cro["pageSpeed"]["average"] = mobile_perf
+            elif desktop_perf:
+                cro["pageSpeed"]["average"] = desktop_perf
+            else:
+                cro["pageSpeed"]["average"] = 0
+
+            # Calculate CRO score using PageSpeeds.md weighting approach
+            # Mobile usability (30%) + PageSpeed performance (40%) + User Experience (30%)
+            cro["score"] = round(
+                cro["mobileUsabilityScore"] * 0.3
+                + cro["pageSpeed"]["average"] * 0.4
+                + cro["userExperience"]["loadingTime"] * 0.3
+            )
+            
+            # Add CRO level classification
+            if cro["score"] >= 80:
+                cro["croLevel"] = "Excellent"
+            elif cro["score"] >= 60:
+                cro["croLevel"] = "Good"
+            elif cro["score"] >= 40:
+                cro["croLevel"] = "Fair"
+            else:
+                cro["croLevel"] = "Poor"
+
+            return cro
+
+        except Exception as e:
+            raise RuntimeError(f"CRO analysis error: {e}") from e
+
+    def calculate_ux_score(self, cwv: Dict[str, Any]) -> int:
+        """Calculate user experience score based on Core Web Vitals."""
+        score = 100
+        lcp = (cwv.get("largestContentfulPaint") or {}).get("value") or 0
+        if lcp > 4000:
+            score -= 30
+        elif lcp > 2500:
+            score -= 15
+
+        cls = (cwv.get("cumulativeLayoutShift") or {}).get("value") or 0
+        if cls > 0.25:
+            score -= 25
+        elif cls > 0.1:
+            score -= 10
+
+        return max(0, score)
+
+    def calculate_interactivity_score(self, sm: Dict[str, Any]) -> int:
+        """Calculate interactivity score based on server metrics."""
+        score = 100
+        tti = (sm.get("timeToInteractive") or {}).get("value") or 0
+        if tti > 5000:
+            score -= 30
+        elif tti > 3000:
+            score -= 15
+
+        tbt = (sm.get("totalBlockingTime") or {}).get("value") or 0
+        if tbt > 600:
+            score -= 25
+        elif tti > 300:
+            score -= 10
+
+        return max(0, score)
+
+    def calculate_visual_stability_score(self, cwv: Dict[str, Any]) -> int:
+        """Calculate visual stability score based on Cumulative Layout Shift."""
+        cls = (cwv.get("cumulativeLayoutShift") or {}).get("value") or 0
+        if cls <= 0.1:
+            return 100
+        if cls <= 0.25:
+            return 80
+        return 50
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
     
     
     def _calculate_summary(self, result: Dict[str, Any], start_time: float = None) -> Dict[str, Any]:
@@ -851,9 +1199,7 @@ class UnifiedAnalyzer:
             if page_speed and isinstance(page_speed, dict) and page_speed.get("errors"):
                 total_errors += len(page_speed["errors"])
             
-            whois = result.get("whois")
-            if whois and isinstance(whois, dict) and whois.get("errors"):
-                total_errors += len(whois["errors"])
+
             
             trust_cro = result.get("trustAndCRO")
             if trust_cro and isinstance(trust_cro, dict) and trust_cro.get("errors"):
@@ -862,8 +1208,7 @@ class UnifiedAnalyzer:
             # Count completed services - handle None values safely
             if page_speed and isinstance(page_speed, dict):
                 services_completed += 1
-            if whois and isinstance(whois, dict):
-                services_completed += 1
+
             if trust_cro and isinstance(trust_cro, dict):
                 services_completed += 1
             
@@ -962,7 +1307,6 @@ class UnifiedAnalyzer:
                     "url": urls[i],
                     "analysisTimestamp": datetime.now().isoformat(),
                     "pageSpeed": None,
-                    "whois": None,
                     "trustAndCRO": None,
                     "summary": {
                         "totalErrors": 1,
@@ -982,15 +1326,14 @@ class UnifiedAnalyzer:
         strategy: str = "mobile"
     ) -> Dict[str, Any]:
         """
-        Run comprehensive website analysis following the data structure from whoispageSpeed.md
-        and integrating domain analysis insights without replacing existing working systems.
+        Run comprehensive website analysis integrating PageSpeed, Trust, and CRO insights.
         
         Args:
             url: URL to analyze
             strategy: Analysis strategy ('mobile' or 'desktop')
             
         Returns:
-            Dictionary with comprehensive analysis results matching whoispageSpeed.md structure
+            Dictionary with comprehensive analysis results
         """
         try:
             start_time = time.time()
@@ -1007,13 +1350,12 @@ class UnifiedAnalyzer:
                     "url": url
                 }
             
-            # Initialize result following whoispageSpeed.md structure
+            # Initialize result following the analysis structure
             result = {
                 "domain": domain,
                 "url": url,
                 "analysisTimestamp": datetime.now().isoformat(),
                 "pageSpeed": None,
-                "whois": None,
                 "trustAndCRO": None,
                 "summary": None
             }
@@ -1047,70 +1389,29 @@ class UnifiedAnalyzer:
                 result["genericOpportunities"] = self.get_generic_opportunities(result)
                 log.debug(f"📋 Added {len(result['genericOpportunities'])} generic opportunities for {url}")
             
-            # 2. WHOIS Analysis (use domain_analysis.py)
-            try:
-                whois_result = await self._get_whois_data(url)
-                result["whois"] = whois_result
-                log.debug(f"✅ WHOIS analysis completed for {url}")
-            except Exception as e:
-                log.warning(f"WHOIS analysis failed for {url}: {e}")
-                result["whois"] = {
-                    "domain": domain,
-                    "url": url,
-                    "timestamp": datetime.now().isoformat(),
-                    "whois": None,
-                    "whoisHistory": None,
-                    "domainAge": None,
-                    "credibility": None,
-                    "errors": [f"WHOIS lookup failed: {e}"]
-                }
+
             
-            # 3. Trust and CRO Analysis (implemented using available data)
+            # 3. Trust and CRO Analysis (using real implementations)
             try:
-                # Calculate Trust score based on domain credibility and WHOIS data
-                trust_score = 0
-                if result.get("whois") and result["whois"].get("credibility"):
-                    trust_score = min(100, result["whois"]["credibility"])
-                elif result.get("whois") and result["whois"].get("whois"):
-                    # Fallback: basic trust scoring based on WHOIS data
-                    whois_data = result["whois"]["whois"]
-                    if whois_data and isinstance(whois_data, dict):
-                        # Score based on registration status, registrar, etc.
-                        if whois_data.get("status") and "expired" not in str(whois_data["status"]).lower():
-                            trust_score += 30
-                        if whois_data.get("registrar") and whois_data["registrar"] != "Unknown":
-                            trust_score += 20
-                        if whois_data.get("nameServers") and len(whois_data["nameServers"]) >= 2:
-                            trust_score += 25
-                        if result.get("whois", {}).get("domainAge", {}).get("years", 0) >= 2:
-                            trust_score += 25
+                # Run real TRUST analysis
+                trust_result = await self.analyze_trust(url)
+                trust_score = trust_result.get("score", 0)
                 
-                # Calculate CRO score based on PageSpeed performance and accessibility
-                cro_score = 0
-                if result.get("pageSpeed", {}).get("mobile"):
-                    mobile = result["pageSpeed"]["mobile"]
-                    if mobile and "scores" in mobile:
-                        scores = mobile["scores"]
-                        # CRO score based on performance, accessibility, and SEO
-                        performance = scores.get("performance", 0)
-                        accessibility = scores.get("accessibility", 0)
-                        seo = scores.get("seo", 0)
-                        
-                        # Weighted average: Performance (40%), Accessibility (30%), SEO (30%)
-                        if performance is not None and accessibility is not None and seo is not None:
-                            cro_score = int((performance * 0.4) + (accessibility * 0.3) + (seo * 0.3))
+                # Run real CRO analysis
+                cro_result = await self.analyze_cro(url)
+                cro_score = cro_result.get("score", 0)
                 
                 result["trustAndCRO"] = {
                     "domain": domain,
                     "url": url,
                     "timestamp": datetime.now().isoformat(),
-                "trust": {
-                        "rawResponse": {"score": trust_score},
+                    "trust": {
+                        "rawResponse": trust_result,
                         "parsed": {"score": trust_score},
-                        "errors": []
-                },
-                "cro": {
-                        "rawResponse": {"score": cro_score},
+                        "errors": trust_result.get("warnings", [])
+                    },
+                    "cro": {
+                        "rawResponse": cro_result,
                         "parsed": {"score": cro_score},
                         "errors": []
                     },
@@ -1124,45 +1425,23 @@ class UnifiedAnalyzer:
                     "url": url,
                     "timestamp": datetime.now().isoformat(),
                     "trust": {
-                        "rawResponse": {"score": 0},
+                        "rawResponse": {"score": 0, "warnings": [f"Trust analysis failed: {e}"]},
                         "parsed": {"score": 0},
                         "errors": [f"Trust analysis failed: {e}"]
                     },
                     "cro": {
-                        "rawResponse": {"score": 0},
+                        "rawResponse": {"score": 0, "errors": [f"CRO analysis failed: {e}"]},
                         "parsed": {"score": 0},
                         "errors": [f"CRO analysis failed: {e}"]
                     },
                     "errors": [f"Trust/CRO analysis failed: {e}"]
-            }
+                }
             
 
             
-            # 5. Domain insights integration (simplified)
-            try:
-                if self.domain_service:
-                    domain_analysis = await self.domain_service.analyze_domain(domain)
-                    result["domainInsights"] = {
-                        "businessMaturity": {
-                            "isEstablished": domain_analysis["analysis"]["isEstablished"],
-                            "isVeteran": domain_analysis["analysis"]["isVeteran"],
-                            "ageCategory": domain_analysis["domainAge"]["ageDescription"],
-                            "yearsInBusiness": domain_analysis["domainAge"]["years"],
-                            "totalDays": domain_analysis["domainAge"]["totalDays"]
-                        },
-                        "credibility": {
-                            "score": domain_analysis["analysis"]["credibility"],
-                            "registrar": domain_analysis["whois"]["registrar"],
-                            "registrationStatus": domain_analysis["whois"]["status"],
-                            "nameServerCount": len(domain_analysis["whois"]["nameServers"]),
-                            "whoisHistoryRecords": domain_analysis["whoisHistory"]["totalRecords"] if domain_analysis["whoisHistory"] else 0
-                        }
-                    }
-                    log.debug(f"✅ Domain insights integration completed for {url}")
-            except Exception as e:
-                log.warning(f"Domain insights integration failed for {url}: {e}")
+
             
-            # 6. Calculate summary following whoispageSpeed.md structure
+            # 6. Calculate summary following the analysis structure
             result["summary"] = self._calculate_summary(result, start_time)
             
             # Update analysis statistics
@@ -1187,7 +1466,7 @@ class UnifiedAnalyzer:
             self.rate_limiter.record_request('comprehensive_speed', False)
             
             log.error(f"Comprehensive analysis failed for {url}: {e}")
-            # Return error structure following whoispageSpeed.md format
+            # Return error structure following the analysis format
             return {
                 "domain": urlparse(url).hostname,
                 "url": url,
@@ -1200,15 +1479,7 @@ class UnifiedAnalyzer:
                     "desktop": None,
                     "errors": [f"Analysis failed: {str(e)}"]
                 },
-                "whois": {
-                    "domain": urlparse(url).hostname,
-                    "timestamp": datetime.now().isoformat(),
-                    "whois": None,
-                    "whoisHistory": None,
-                    "domainAge": None,
-                    "credibility": None,
-                    "errors": [f"Analysis failed: {str(e)}"]
-                },
+
                 "trustAndCRO": {
                     "domain": urlparse(url).hostname,
                     "url": url,
@@ -1237,7 +1508,7 @@ class UnifiedAnalyzer:
             "status": self.service_health["overall"],
             "services": {
                 "pagespeed": self.service_health["pagespeed"],
-                "domain_analysis": self.service_health["domain_analysis"]
+                "domain_analysis": "unavailable"
             },
             "rate_limits": {
                 "google_pagespeed": getattr(self.api_config, 'PAGESPEED_RATE_LIMIT_PER_MINUTE', 240),
@@ -1256,7 +1527,8 @@ class UnifiedAnalyzer:
                 "batch_processing": True,
                 "health_monitoring": True,
                 "rate_limiting": True,
-                "comprehensive_analysis": True
+                "comprehensive_analysis": True,
+                "domain_analysis": False
             }
         }
     
@@ -1293,7 +1565,7 @@ class UnifiedAnalyzer:
     # --- New Ethos: Score Extraction Methods ---
     
     def _get_mobile_score(self, analysis_result: Dict[str, Any], key: str) -> Optional[int]:
-        """Prefer mobile score, fallback to desktop.
+        """Prefer mobile score, fallback to desktop, following PageSpeeds.md structure.
         
         Args:
             analysis_result: The analysis result dictionary
@@ -1302,20 +1574,47 @@ class UnifiedAnalyzer:
         Returns:
             The score as an int if found, otherwise None
         """
-        # Check if we have PageSpeed data - the structure is {'mobile': {...}, 'desktop': {...}, 'errors': [...]}
-        if "mobile" not in analysis_result and "desktop" not in analysis_result:
+        # Check if we have PageSpeed data - the structure is {'pageSpeed': {'mobile': {...}, 'desktop': {...}, 'errors': [...]}}
+        page_speed = analysis_result.get("pageSpeed", {})
+        if not page_speed:
+            log.debug(f"🔍 No pageSpeed data found in analysis_result for key: {key}")
             return None
         
-        # Prefer mobile, fallback to desktop
-        mobile = analysis_result.get("mobile")
-        desktop = analysis_result.get("desktop")
+        # Prefer mobile, fallback to desktop (following PageSpeeds.md mobile-first approach)
+        mobile = page_speed.get("mobile")
+        desktop = page_speed.get("desktop")
         
-        for src in (mobile, desktop):
-            if src and "scores" in src and key in src["scores"]:
-                score = src["scores"][key]
+        log.debug(f"🔍 Looking for {key} score - mobile: {mobile is not None}, desktop: {desktop is not None}")
+        
+        # Try mobile first, then desktop
+        for strategy, data in [("mobile", mobile), ("desktop", desktop)]:
+            if data and isinstance(data, dict) and "scores" in data:
+                scores = data["scores"]
+                
+                # Handle both naming conventions for Best Practices (PageSpeeds.md uses "best-practices")
+                if key == "bestPractices":
+                    score = scores.get("bestPractices") or scores.get("best-practices")
+                else:
+                    score = scores.get(key)
+                
                 if score is not None:
-                    return int(score)
+                    log.debug(f"🔍 Found {key} score from {strategy}: {score} (type: {type(score)})")
+                    
+                    # Ensure we return an integer
+                    try:
+                        if isinstance(score, (int, float)):
+                            return int(round(score))
+                        elif isinstance(score, str):
+                            # Handle string scores (e.g., "0.95")
+                            return int(round(float(score)))
+                        else:
+                            log.warning(f"⚠️ Unexpected score type for {key}: {type(score)} - {score}")
+                            return None
+                    except (ValueError, TypeError) as e:
+                        log.warning(f"⚠️ Error converting score for {key}: {score} - {e}")
+                        return None
         
+        log.debug(f"🔍 No {key} score found in any source")
         return None
     
     def _get_trust_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
@@ -1367,9 +1666,8 @@ class UnifiedAnalyzer:
         return self._get_mobile_score(analysis_result, "seo") or 0
     
     def get_best_practices_score(self, analysis_result: Dict[str, Any]) -> int:
-        """Get best practices score with mobile preference (legacy support)."""
-        # Note: bestPractices is deprecated, use trust and cro scores instead
-        return 0  # Return 0 since bestPractices is no longer part of the new KPI structure
+        """Get best practices score with mobile preference."""
+        return self._get_mobile_score(analysis_result, "bestPractices") or 0
     
     def get_trust_score(self, analysis_result: Dict[str, Any]) -> int:
         """Get trust score."""
@@ -1382,44 +1680,56 @@ class UnifiedAnalyzer:
 
     
     def get_overall_score(self, analysis_result: Dict[str, Any]) -> float:
-        """Calculate overall score from all five categories including Trust and CRO as real zeros."""
+        """Calculate overall score from all six categories including Best Practices, Trust and CRO."""
         values = [
             self.get_performance_score(analysis_result),
             self.get_accessibility_score(analysis_result),
+            self.get_best_practices_score(analysis_result),
             self.get_seo_score(analysis_result),
             self.get_trust_score(analysis_result),
             self.get_cro_score(analysis_result)
         ]
-        # Include all five categories - Trust and CRO are treated as real zeros, not excluded
-        # This ensures we always have 5 values to average
+        # Include all six categories - this provides a comprehensive website health score
+        # This ensures we always have 6 values to average
         total_score = sum(values)
-        overall_percentage = round(total_score / 5.0, 1)  # Round to 1 decimal place for cleaner display
+        overall_percentage = round(total_score / 6.0, 1)  # Round to 1 decimal place for cleaner display
         return overall_percentage
     
     def get_mobile_usability_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
-        """Get the mobile usability score from PageSpeed data."""
-        mobile = analysis_result.get("mobile", {})
+        """Get the mobile usability score from PageSpeed data following PageSpeeds.md structure."""
+        page_speed = analysis_result.get("pageSpeed", {})
+        mobile = page_speed.get("mobile", {})
+        
         if mobile and "mobileUsability" in mobile:
             mobile_usability = mobile["mobileUsability"]
             if mobile_usability and isinstance(mobile_usability, dict):
                 score = mobile_usability.get("score")
                 if score is not None:
                     return int(score)
+        
+        # Fallback: check if we have mobile data but no mobileUsability
+        if mobile and "scores" in mobile:
+            # If we have mobile scores but no mobileUsability, calculate a basic score
+            # This handles cases where PageSpeed API doesn't return mobileUsability
+            log.debug("📱 No mobileUsability data found, calculating basic mobile score")
+            return None  # Return None to indicate no mobile usability data
+        
         return None
     
-    def get_top_issues(self, analysis_result: Dict[str, Any], max_issues: int = 3) -> List[str]:
-        """Get top issues from PageSpeed opportunities and mobile usability."""
+    def get_top_issues(self, analysis_result: Dict[str, Any], max_issues: int = 5) -> List[str]:
+        """Get top issues from PageSpeed opportunities and mobile usability following PageSpeeds.md structure."""
         issues = []
         
-        # Get opportunities from mobile data
-        mobile = analysis_result.get("mobile", {})
+        # Get opportunities from mobile data (following PageSpeeds.md mobile-first approach)
+        page_speed = analysis_result.get("pageSpeed", {})
+        mobile = page_speed.get("mobile", {})
         if mobile and "opportunities" in mobile:
             for opp in mobile["opportunities"][:max_issues]:
                 title = opp.get("title", "")
                 if title:
                     # Truncate long titles to prevent UI overflow
-                    if len(title) > 25:
-                        title = title[:22] + "..."
+                    if len(title) > 50:
+                        title = title[:47] + "..."
                     issues.append(title)
         
         # If we don't have enough issues, add mobile usability issues
@@ -1431,13 +1741,13 @@ class UnifiedAnalyzer:
                     if len(issues) >= max_issues:
                         break
                     # Truncate long issues
-                    if len(issue) > 25:
-                        issue = issue[:22] + "..."
+                    if len(issue) > 50:
+                        issue = issue[:47] + "..."
                     issues.append(issue)
         
         # If still not enough, add desktop opportunities
         if len(issues) < max_issues:
-            desktop = analysis_result.get("desktop", {})
+            desktop = page_speed.get("desktop", {})
             if desktop and "opportunities" in desktop:
                 for opp in desktop["opportunities"]:
                     if len(issues) >= max_issues:
@@ -1445,9 +1755,33 @@ class UnifiedAnalyzer:
                     title = opp.get("title", "")
                     if title and title not in issues:
                         # Truncate long titles
-                        if len(title) > 25:
-                            title = title[:22] + "..."
+                        if len(title) > 50:
+                            title = title[:47] + "..."
                         issues.append(title)
+        
+        # If still not enough, add generic issues from analysis errors
+        if len(issues) < max_issues:
+            errors = page_speed.get("errors", [])
+            for error in errors:
+                if len(issues) >= max_issues:
+                    break
+                if isinstance(error, dict):
+                    error_msg = error.get("message", str(error))
+                else:
+                    error_msg = str(error)
+                
+                # Convert error messages to user-friendly issue descriptions
+                if "FAILED_DOCUMENT_REQUEST" in error_msg:
+                    issue = "Website accessibility issue - server not responding"
+                elif "net::ERR_TIMED_OUT" in error_msg:
+                    issue = "Website performance issue - connection timeout"
+                elif "400" in error_msg or "Bad Request" in error_msg:
+                    issue = "Website configuration issue - invalid request"
+                else:
+                    issue = f"Technical analysis issue - {error_msg[:30]}..."
+                
+                if issue not in issues:
+                    issues.append(issue)
         
         return issues[:max_issues]
     
