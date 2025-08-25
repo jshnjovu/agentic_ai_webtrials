@@ -61,6 +61,17 @@ async def run_pagespeed_audit(
             strategy=request.strategy.value  # Convert enum to string value
         )
         
+        # Debug logging to understand the response structure
+        logger.debug(f"🔍 Analysis result structure: {list(analysis_result.keys())}")
+        if analysis_result.get("mobile"):
+            logger.debug(f"📱 Mobile data keys: {list(analysis_result['mobile'].keys())}")
+            if analysis_result["mobile"].get("scores"):
+                logger.debug(f"📊 Mobile scores: {analysis_result['mobile']['scores']}")
+        if analysis_result.get("desktop"):
+            logger.debug(f"💻 Desktop data keys: {list(analysis_result['desktop'].keys())}")
+            if analysis_result["desktop"].get("scores"):
+                logger.debug(f"📊 Desktop scores: {analysis_result['desktop']['scores']}")
+        
         # Check if this is a fallback result
         is_fallback = analysis_result.get("fallback_reason", {}).get("fallback_scores_used", False)
         
@@ -75,25 +86,60 @@ async def run_pagespeed_audit(
         # Prefer mobile scores, fallback to desktop (following the new ethos)
         scores_data = mobile_data.get("scores", {}) if mobile_data else desktop_data.get("scores", {})
         
-        # For now, set trust and CRO to 0 since they're not provided by PageSpeed
-        # These will be populated by separate trust/CRO analysis services
+        # If no scores data is available, log a warning and use defaults
+        if not scores_data:
+            logger.warning(f"⚠️ No scores data available for {request.website_url} - mobile: {bool(mobile_data)}, desktop: {bool(desktop_data)}")
+            scores_data = {}
+        
+        # Extract scores from the unified analyzer response
+        # The scores are already calculated in unified.py and returned in the scores field
+        performance_score = scores_data.get("performance", 0)
+        accessibility_score = scores_data.get("accessibility", 0)
+        seo_score = scores_data.get("seo", 0)
+        
+        # Validate that we have valid scores
+        if not isinstance(performance_score, (int, float)) or performance_score < 0:
+            logger.warning(f"⚠️ Invalid performance score for {request.website_url}: {performance_score}, defaulting to 0")
+            performance_score = 0
+        if not isinstance(accessibility_score, (int, float)) or accessibility_score < 0:
+            logger.warning(f"⚠️ Invalid accessibility score for {request.website_url}: {accessibility_score}, defaulting to 0")
+            accessibility_score = 0
+        if not isinstance(seo_score, (int, float)) or seo_score < 0:
+            logger.warning(f"⚠️ Invalid SEO score for {request.website_url}: {seo_score}, defaulting to 0")
+            seo_score = 0
+        
+        # For now, set trust to 0 since it's not provided by PageSpeed
+        # Use mobile usability score as a CRO indicator since it affects user experience
         trust_score = 0
         cro_score = 0
         
+        # Try to get mobile usability score as a CRO indicator
+        try:
+            analyzer = UnifiedAnalyzer()
+            mobile_usability_score = analyzer.get_mobile_usability_score(analysis_result)
+            if mobile_usability_score is not None:
+                cro_score = mobile_usability_score
+                logger.info(f"📱 Using mobile usability score as CRO indicator: {cro_score} for {request.website_url}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not extract mobile usability score for {request.website_url}: {e}")
+        
         # Create WebsiteScore object with proper field mapping
+        # Calculate overall as percentage (average of 5 metrics)
+        overall_percentage = round(sum([
+            performance_score,
+            accessibility_score,
+            seo_score,
+            trust_score,
+            cro_score
+        ]) / 5, 1)  # Round to 1 decimal place for cleaner display
+        
         website_scores = WebsiteScore(
-            performance=scores_data.get("performance", 0),
-            accessibility=scores_data.get("accessibility", 0),
-            seo=scores_data.get("seo", 0),
+            performance=performance_score,
+            accessibility=accessibility_score,
+            seo=seo_score,
             trust=trust_score,
             cro=cro_score,
-            overall=round(sum([
-                scores_data.get("performance", 0),
-                scores_data.get("accessibility", 0),
-                scores_data.get("seo", 0),
-                trust_score,
-                cro_score
-            ]) / 5)  # Calculate overall as average of 5 metrics
+            overall=overall_percentage
         )
         
         # Validate scores and log any anomalies
@@ -105,6 +151,42 @@ async def run_pagespeed_audit(
         core_web_vitals_data = source_data.get("coreWebVitals", {})
         server_metrics_data = source_data.get("serverMetrics", {})
         
+        # Extract core web vitals values safely
+        # The unified analyzer returns metrics in the format: {"value": number, "displayValue": string, "unit": string}
+        first_contentful_paint = None
+        largest_contentful_paint = None
+        cumulative_layout_shift = None
+        total_blocking_time = None
+        speed_index = None
+        
+        if core_web_vitals_data:
+            if core_web_vitals_data.get("firstContentfulPaint"):
+                first_contentful_paint = core_web_vitals_data["firstContentfulPaint"].get("value")
+            if core_web_vitals_data.get("largestContentfulPaint"):
+                largest_contentful_paint = core_web_vitals_data["largestContentfulPaint"].get("value")
+            if core_web_vitals_data.get("cumulativeLayoutShift"):
+                cumulative_layout_shift = core_web_vitals_data["cumulativeLayoutShift"].get("value")
+            if core_web_vitals_data.get("speedIndex"):
+                speed_index = core_web_vitals_data["speedIndex"].get("value")
+        
+        if server_metrics_data:
+            if server_metrics_data.get("totalBlockingTime"):
+                total_blocking_time = server_metrics_data["totalBlockingTime"].get("value")
+        
+        # Extract opportunities and top issues for the response
+        opportunities = []
+        top_issues = []
+        try:
+            # Get opportunities from the unified analyzer
+            analyzer = UnifiedAnalyzer()
+            opportunities = analyzer.get_all_opportunities(analysis_result)
+            top_issues = analyzer.get_top_issues(analysis_result)
+            logger.info(f"📋 Extracted {len(opportunities)} opportunities and {len(top_issues)} top issues for {request.website_url}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not extract opportunities/top issues for {request.website_url}: {e}")
+            opportunities = []
+            top_issues = []
+        
         # Create response with proper schema mapping
         response = PageSpeedAuditResponse(
             success=True,
@@ -115,13 +197,15 @@ async def run_pagespeed_audit(
             strategy=request.strategy.value,  # Convert enum to string value
             scores=website_scores,
             core_web_vitals={
-                "first_contentful_paint": core_web_vitals_data.get("firstContentfulPaint", {}).get("value") if core_web_vitals_data.get("firstContentfulPaint") else None,
-                "largest_contentful_paint": core_web_vitals_data.get("largestContentfulPaint", {}).get("value") if core_web_vitals_data.get("largestContentfulPaint") else None,
-                "cumulative_layout_shift": core_web_vitals_data.get("cumulativeLayoutShift", {}).get("value") if core_web_vitals_data.get("cumulativeLayoutShift") else None,
-                "total_blocking_time": server_metrics_data.get("totalBlockingTime", {}).get("value") if server_metrics_data.get("totalBlockingTime") else None,
-                "speed_index": core_web_vitals_data.get("speedIndex", {}).get("value") if core_web_vitals_data.get("speedIndex") else None
+                "first_contentful_paint": first_contentful_paint,
+                "largest_contentful_paint": largest_contentful_paint,
+                "cumulative_layout_shift": cumulative_layout_shift,
+                "total_blocking_time": total_blocking_time,
+                "speed_index": speed_index
             },
-            raw_data=analysis_result
+            raw_data=analysis_result,
+            opportunities=opportunities,  # Add opportunities to the response
+            top_issues=top_issues  # Add top issues to the response
         )
         
         # Add fallback information to response if applicable
@@ -137,6 +221,7 @@ async def run_pagespeed_audit(
             }
         
         logger.info(f"✅ PageSpeed analysis completed for {request.website_url}")
+        logger.info(f"📊 Scores extracted - Performance: {performance_score}, Accessibility: {accessibility_score}, SEO: {seo_score}, Overall: {website_scores.overall}")
         
         return response
         
@@ -299,9 +384,20 @@ async def run_comprehensive_analysis(
                 result["opportunities"] = opportunities
                 logger.info(f"📋 Added {len(opportunities)} opportunities for {url}")
                 
+                # Add individual scores for easier access
+                result["scores"] = {
+                    "performance": analyzer.get_performance_score(result),
+                    "accessibility": analyzer.get_accessibility_score(result),
+                    "seo": analyzer.get_seo_score(result),
+                    "trust": analyzer.get_trust_score(result),
+                    "cro": analyzer.get_cro_score(result),
+                    "overall": overall_score
+                }
+                
             except Exception as score_error:
                 logger.warning(f"⚠️ Could not calculate Overall score for {url}: {score_error}")
                 result["overall_score"] = None
+                result["scores"] = None
         
         return result
         

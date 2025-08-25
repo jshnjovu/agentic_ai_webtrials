@@ -164,6 +164,8 @@ class PageSpeedAuditResponse(BaseModel):
     strategy: str = Field(..., description="Analysis strategy used")
     scores: WebsiteScore = Field(..., description="Performance scores")
     core_web_vitals: CoreWebVitals = Field(..., description="Core Web Vitals metrics")
+    opportunities: Optional[List[Dict[str, Any]]] = Field(default=[], description="List of improvement opportunities")
+    top_issues: Optional[List[str]] = Field(default=[], description="List of top issues to address")
     raw_data: Optional[Dict[str, Any]] = Field(default=None, description="Raw API response data")
 
 

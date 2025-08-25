@@ -15,6 +15,7 @@ from datetime import datetime
 
 import aiohttp
 import async_timeout
+from googleapiclient.discovery import build
 
 from .domain_analysis import DomainAnalysisService
 from ..core.config import get_api_config
@@ -26,9 +27,20 @@ log = logging.getLogger("unified")
 
 class UnifiedAnalyzer:
     def __init__(self) -> None:
-        self.pagespeed_base_url = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
         self.api_config = get_api_config()
         self.google_api_key = self.api_config.GOOGLE_GENERAL_API_KEY
+        
+        # Initialize Google PageSpeed API service
+        if self.google_api_key:
+            try:
+                self.pagespeed_service = build('pagespeedonline', 'v5', developerKey=self.google_api_key)
+                log.debug(f"✅ Google PageSpeed API service initialized with key: {self.google_api_key[:10]}...")
+            except Exception as e:
+                log.error(f"❌ Failed to initialize Google PageSpeed API service: {e}")
+                self.pagespeed_service = None
+        else:
+            self.pagespeed_service = None
+            log.error(f"❌ Google PageSpeed API key NOT configured - this will cause failures!")
         
         # 1. Caching System
         self.cache = {}
@@ -72,8 +84,8 @@ class UnifiedAnalyzer:
             self.domain_service = None
             self.service_health["domain_analysis"] = "unhealthy"
         
-        # Check PageSpeed API key
-        if self.google_api_key:
+        # Check PageSpeed API key and service
+        if self.google_api_key and self.pagespeed_service:
             self.service_health["pagespeed"] = "healthy"
             log.debug(f"✅ PageSpeed API key configured: {self.google_api_key[:10]}...")
         else:
@@ -83,6 +95,7 @@ class UnifiedAnalyzer:
         # Log configuration summary
         log.debug(f"🔧 UnifiedAnalyzer initialized with:")
         log.debug(f"   - PageSpeed API Key: {'SET' if self.google_api_key else 'NOT_SET'}")
+        log.debug(f"   - PageSpeed Service: {'INITIALIZED' if self.pagespeed_service else 'NOT_INITIALIZED'}")
         log.debug(f"   - Cache TTL: {self.cache_ttl}s")
         log.debug(f"   - Retry attempts: {self.retry_config['max_attempts']}")
         log.debug(f"   - Rate limiter: {'enabled' if self.rate_limiter else 'disabled'}")
@@ -90,80 +103,73 @@ class UnifiedAnalyzer:
         self._update_overall_health()
 
     # ------------------------------------------------------------------ #
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    async def make_request(self, url: str, **kwargs) -> Dict[str, Any]:
-        """Enhanced request method with retry logic and rate limiting."""
+    def _call_pagespeed_api(self, url: str, strategy: str) -> Dict[str, Any]:
+        """Call Google PageSpeed API using native googleapiclient library."""
         try:
-            log.debug(f"🌐 Making HTTP request to: {url[:100]}...")
+            if not self.pagespeed_service:
+                raise RuntimeError("Google PageSpeed API service not initialized")
             
-            # Check rate limits - use google_pagespeed since this is for PageSpeed API calls
-            can_proceed, message = self.rate_limiter.can_make_request('google_pagespeed')
-            if not can_proceed:
-                log.warning(f"⚠️ Rate limit exceeded: {message}")
-                raise RuntimeError(f"Rate limit exceeded: {message}")
+            # Prepare parameters for the API call
+            # Convert strategy to uppercase as required by Google PageSpeed API
+            strategy_upper = strategy.upper()
+            params = {
+                'url': url,
+                'strategy': strategy_upper,
+                'category': ['PERFORMANCE', 'ACCESSIBILITY', 'SEO'],  # Request all three categories
+                'prettyPrint': True
+            }
             
-            log.debug(f"📡 Sending request...")
+            log.debug(f"📡 Calling Google PageSpeed API for {strategy} strategy: {url}")
             
-            # Use aiohttp for non-blocking HTTP requests
-            timeout = kwargs.pop('timeout', 30)
-            async with async_timeout.timeout(timeout):
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, **kwargs) as resp:
-                        log.debug(f"📊 Response status: {resp.status} {resp.reason}")
-                        log.debug(f"📋 Response headers: {dict(resp.headers)}")
-                        
-                        if resp.status >= 400:
-                            # Record failed request
-                            self.rate_limiter.record_request('google_pagespeed', False)
-                            
-                            error_text = await resp.text()
-                            log.error(f"❌ HTTP request failed: {resp.status} {resp.reason}")
-                            log.error(f"🔍 Response headers: {dict(resp.headers)}")
-                            log.error(f"📋 Response body: {error_text[:500]}...")
-                            
-                            raise RuntimeError(
-                                f"Request failed with status {resp.status}: {resp.reason}"
-                            )
-                        
-                        # Record successful request
-                        self.rate_limiter.record_request('google_pagespeed', True)
-                        log.debug(f"✅ Request successful, parsing JSON response...")
-                        
-                        return await resp.json()
+            # Make the API call (execute() is synchronous)
+            response = self.pagespeed_service.pagespeedapi().runpagespeed(**params).execute()
             
-        except asyncio.TimeoutError:
-            # Record failed request
-            self.rate_limiter.record_request('google_pagespeed', False)
+            log.debug(f"✅ Google PageSpeed API response received for {strategy}")
             
-            log.error(f"❌ Request timeout after {timeout}s")
-            raise RuntimeError(f"Request timeout after {timeout}s")
+            # Debug: Log the structure of the response
+            if log.isEnabledFor(logging.DEBUG):
+                lighthouse = response.get("lighthouseResult", {})
+                categories = lighthouse.get("categories", {})
+                audits = lighthouse.get("audits", {})
+                
+                log.debug(f"📊 Response structure for {strategy}:")
+                log.debug(f"   - Has lighthouseResult: {bool(lighthouse)}")
+                log.debug(f"   - Categories: {list(categories.keys()) if categories else 'None'}")
+                log.debug(f"   - Audits count: {len(audits) if audits else 0}")
+                
+                if categories:
+                    for cat_name, cat_data in categories.items():
+                        if isinstance(cat_data, dict) and "score" in cat_data:
+                            log.debug(f"   - {cat_name} score: {cat_data['score']}")
             
-        except aiohttp.ClientError as e:
-            # Record failed request
-            self.rate_limiter.record_request('google_pagespeed', False)
-            
-            log.error(f"❌ aiohttp client error: {type(e).__name__}: {e}")
-            raise RuntimeError(f"aiohttp client error: {e}")
+            return response
             
         except Exception as e:
-            # Record failed request
-            self.rate_limiter.record_request('google_pagespeed', False)
-            
-            log.error(f"❌ Request failed with exception: {type(e).__name__}: {e}")
-            log.error(f"🔍 Exception details: {str(e)}")
-            
-            raise RuntimeError(f"Request failed: {e}") from e
+            log.error(f"❌ Google PageSpeed API call failed for {strategy}: {e}")
+            raise RuntimeError(f"Google PageSpeed API call failed: {e}")
 
     # ------------------------------------------------------------------ #
     def extract_metric(self, metric: Dict[str, Any]) -> Dict[str, Any] | None:
-        """Extract metric data with safe fallbacks."""
+        """Extract metric data with safe fallbacks for Google PageSpeed API."""
         if not metric:
             return None
-        return {
-            "value": metric.get("numericValue"),
-            "displayValue": metric.get("displayValue"),
-            "unit": metric.get("numericUnit", ""),
-        }
+        
+        # Google PageSpeed API uses different field names
+        # Try numericValue first (for opportunities), then value (for core web vitals)
+        numeric_value = metric.get("numericValue") or metric.get("value")
+        display_value = metric.get("displayValue") or metric.get("displayValue", "")
+        unit = metric.get("numericUnit") or metric.get("unit", "")
+        
+        # If we have a numeric value, return the metric
+        if numeric_value is not None:
+            return {
+                "value": numeric_value,
+                "displayValue": display_value,
+                "unit": unit,
+            }
+        
+        # If no numeric value, return None
+        return None
     
 
     
@@ -171,19 +177,28 @@ class UnifiedAnalyzer:
 
     # ------------------------------------------------------------------ #
     def extract_opportunities(self, audits: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract opportunities from Google PageSpeed API audits."""
         opportunities = []
         for key, audit in audits.items():
-            if audit.get("details", {}).get("type") == "opportunity" and audit.get(
-                "numericValue", 0
-            ) > 0:
-                opportunities.append(
-                    {
-                        "title": audit["title"],
-                        "description": audit["description"],
-                        "potentialSavings": round(audit["numericValue"]),
-                        "unit": audit.get("numericUnit", "ms"),
-                    }
-                )
+            # Google PageSpeed API opportunities have different structure
+            # Check if this is an opportunity audit
+            if (audit.get("details", {}).get("type") == "opportunity" or 
+                audit.get("score") is not None and audit.get("score") < 1.0):
+                
+                # Get potential savings - try different field names
+                potential_savings = audit.get("numericValue") or audit.get("value") or 0
+                
+                # Only include if there are actual savings or it's a failed audit
+                if potential_savings > 0 or (audit.get("score") is not None and audit.get("score") < 1.0):
+                    opportunities.append({
+                        "title": audit.get("title", "Performance Opportunity"),
+                        "description": audit.get("description", "Improve this aspect of your website"),
+                        "potentialSavings": round(potential_savings) if potential_savings > 0 else 0,
+                        "unit": audit.get("numericUnit") or audit.get("unit", "ms"),
+                    })
+        
+        # Sort by potential savings (highest first) and return top 3
+        opportunities.sort(key=lambda x: x["potentialSavings"], reverse=True)
         return opportunities[:3]
 
     def get_generic_opportunities(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -301,24 +316,44 @@ class UnifiedAnalyzer:
         """
         all_opportunities = []
         
-        # First, try to get specific PageSpeed opportunities
-        page_speed = analysis_result.get("pageSpeed", {})
-        if page_speed:
-            # Check mobile opportunities first
-            mobile = page_speed.get("mobile")
-            if mobile and mobile.get("opportunities"):
-                all_opportunities.extend(mobile["opportunities"])
-            
-            # Add desktop opportunities if we don't have enough
-            if len(all_opportunities) < 3:
-                desktop = page_speed.get("desktop")
-                if desktop and desktop.get("opportunities"):
-                    for opp in desktop["opportunities"]:
-                        if len(all_opportunities) >= 3:
-                            break
-                        # Avoid duplicates by checking title
-                        if not any(existing["title"] == opp["title"] for existing in all_opportunities):
-                            all_opportunities.append(opp)
+        # The structure is {'mobile': {...}, 'desktop': {...}, 'errors': [...]}
+        # Check mobile opportunities first
+        mobile = analysis_result.get("mobile", {})
+        if mobile and mobile.get("opportunities"):
+            for opp in mobile["opportunities"]:
+                # Truncate long titles to prevent UI overflow
+                title = opp.get("title", "")
+                if len(title) > 30:
+                    title = title[:27] + "..."
+                
+                all_opportunities.append({
+                    "title": title,
+                    "description": opp.get("description", ""),
+                    "potentialSavings": opp.get("potentialSavings", 0),
+                    "unit": opp.get("unit", "ms")
+                })
+        
+        # Add desktop opportunities if we don't have enough
+        if len(all_opportunities) < 3:
+            desktop = analysis_result.get("desktop", {})
+            if desktop and desktop.get("opportunities"):
+                for opp in desktop["opportunities"]:
+                    if len(all_opportunities) >= 3:
+                        break
+                    
+                    # Avoid duplicates by checking title
+                    title = opp.get("title", "")
+                    if not any(existing["title"] == title for existing in all_opportunities):
+                        # Truncate long titles
+                        if len(title) > 30:
+                            title = title[:27] + "..."
+                        
+                        all_opportunities.append({
+                            "title": title,
+                            "description": opp.get("description", ""),
+                            "potentialSavings": opp.get("potentialSavings", 0),
+                            "unit": opp.get("unit", "ms")
+                        })
         
         # If we don't have enough specific opportunities, add generic ones
         if len(all_opportunities) < 3:
@@ -337,7 +372,7 @@ class UnifiedAnalyzer:
     async def run_page_speed_analysis(
         self, url: str, strategy: str = "mobile"
     ) -> Dict[str, Any]:
-        """Run PageSpeed analysis for BOTH mobile and desktop following the new ethos."""
+        """Run PageSpeed analysis for BOTH mobile and desktop using native googleapiclient."""
         cache_key = f"pagespeed_{url}_both"
         
         # Check cache first
@@ -353,6 +388,7 @@ class UnifiedAnalyzer:
         
         log.debug(f"🚀 Starting PageSpeed analysis for {url} (mobile + desktop)")
         log.debug(f"🔑 API Key status: {'SET' if self.google_api_key else 'NOT_SET'}")
+        log.debug(f"🔧 Service status: {'INITIALIZED' if self.pagespeed_service else 'NOT_INITIALIZED'}")
         
         # Check if circuit breaker is already open - fail fast
         can_proceed, message = self.rate_limiter.can_make_request('google_pagespeed')
@@ -385,16 +421,8 @@ class UnifiedAnalyzer:
                 try:
                     log.debug(f"📡 {strategy_name.capitalize()} attempt {attempt + 1}/{self.retry_config['max_attempts']} for {url}")
                     
-                    categories = ["performance", "accessibility", "best-practices", "seo"]
-                    category_params = "&".join([f"category={c}" for c in categories])
-                    api_url = (
-                        f"{self.pagespeed_base_url}?url={url}&strategy={strategy_name}"
-                        f"&{category_params}&prettyPrint=true&key={self.google_api_key}"
-                    )
-                    
-                    log.debug(f"🌐 Calling PageSpeed API for {strategy_name}: {api_url[:100]}...")
-
-                    data = await self.make_request(api_url)
+                    # Use native googleapiclient instead of direct HTTP requests
+                    data = self._call_pagespeed_api(url, strategy_name)
 
                     if data.get("error"):
                         error_msg = data["error"]["message"]
@@ -442,12 +470,44 @@ class UnifiedAnalyzer:
                     log.debug(f"✅ {strategy_name.capitalize()} analysis successful for {url}")
                     log.debug(f"📊 Raw scores from API: {scores}")
                     
+                    # Debug: Log detailed score information
+                    log.debug(f"🔍 Detailed score extraction for {strategy_name}:")
+                    for category in ["performance", "accessibility", "seo"]:
+                        category_data = scores.get(category, {})
+                        raw_score = category_data.get("score") if isinstance(category_data, dict) else None
+                        calculated_score = self._calculate_score(raw_score)
+                        log.debug(f"   - {category}: raw={raw_score}, calculated={calculated_score}")
+                    
                     # Calculate scores directly following the new ethos
-                    adjusted_scores = {
-                        "performance": self._calculate_score(scores.get("performance", {}).get("score", 0)),
-                        "accessibility": self._calculate_score(scores.get("accessibility", {}).get("score", 0)),
-                        "seo": self._calculate_score(scores.get("seo", {}).get("score", 0)),
-                    }
+                    # Handle cases where certain categories might not be available
+                    adjusted_scores = {}
+                    
+                    # Performance is always available
+                    performance_score = scores.get("performance", {})
+                    if isinstance(performance_score, dict) and "score" in performance_score:
+                        adjusted_scores["performance"] = self._calculate_score(performance_score["score"])
+                    else:
+                        adjusted_scores["performance"] = 0
+                        log.warning(f"⚠️ No performance score found for {strategy_name}")
+                    
+                    # Accessibility might not always be available
+                    accessibility_score = scores.get("accessibility", {})
+                    if isinstance(accessibility_score, dict) and "score" in accessibility_score:
+                        adjusted_scores["accessibility"] = self._calculate_score(accessibility_score["score"])
+                    else:
+                        adjusted_scores["accessibility"] = 0
+                        log.debug(f"📝 No accessibility score found for {strategy_name} - this is normal for some sites")
+                    
+                    # SEO might not always be available
+                    seo_score = scores.get("seo", {})
+                    if isinstance(seo_score, dict) and "score" in seo_score:
+                        adjusted_scores["seo"] = self._calculate_score(seo_score["score"])
+                    else:
+                        adjusted_scores["seo"] = 0
+                        log.debug(f"📝 No SEO score found for {strategy_name} - this is normal for some sites")
+                    
+                    # Log the final scores
+                    log.debug(f"📊 Final calculated scores for {strategy_name}: {adjusted_scores}")
                     
                     strategy_result = {
                         "scores": adjusted_scores,
@@ -608,24 +668,38 @@ class UnifiedAnalyzer:
     def analyze_mobile_usability_from_pagespeed(
         self, audits: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Analyze mobile usability from Google PageSpeed API audits."""
+        # Google PageSpeed API mobile usability audits
         checks = {
             "hasViewportMetaTag": (audits.get("viewport") or {}).get("score") == 1,
-            "contentSizedCorrectly": (audits.get("content-width") or {}).get("score")
-            == 1,
-            "tapTargetsAppropriateSize": (audits.get("tap-targets") or {}).get("score")
-            == 1,
+            "contentSizedCorrectly": (audits.get("content-width") or {}).get("score") == 1,
+            "tapTargetsAppropriateSize": (audits.get("tap-targets") or {}).get("score") == 1,
             "textReadable": (audits.get("font-size") or {}).get("score") == 1,
-            "isResponsive": True,
+            "isResponsive": True,  # Assume responsive by default
         }
 
+        # Count passed checks
         passed = sum(bool(v) for v in checks.values())
         mobile_score = round((passed / len(checks)) * 100)
+
+        # Get mobile-specific issues
+        issues = self.get_mobile_issues(checks)
+        
+        # Add any additional mobile-specific issues from audits
+        mobile_audits = ["viewport", "content-width", "tap-targets", "font-size"]
+        for audit_key in mobile_audits:
+            audit = audits.get(audit_key, {})
+            if audit.get("score") is not None and audit.get("score") < 1.0:
+                # This audit failed, add it to issues if not already covered
+                audit_title = audit.get("title", f"Mobile {audit_key} issue")
+                if audit_title not in issues:
+                    issues.append(audit_title)
 
         return {
             "mobileFriendly": mobile_score >= 80,
             "score": mobile_score,
             "checks": checks,
-            "issues": self.get_mobile_issues(checks),
+            "issues": issues,
             "realData": True,
         }
 
@@ -1219,13 +1293,13 @@ class UnifiedAnalyzer:
         Returns:
             The score as an int if found, otherwise None
         """
-        # Check if we have PageSpeed data
-        if "pageSpeed" not in analysis_result:
+        # Check if we have PageSpeed data - the structure is {'mobile': {...}, 'desktop': {...}, 'errors': [...]}
+        if "mobile" not in analysis_result and "desktop" not in analysis_result:
             return None
         
         # Prefer mobile, fallback to desktop
-        mobile = analysis_result["pageSpeed"].get("mobile")
-        desktop = analysis_result["pageSpeed"].get("desktop")
+        mobile = analysis_result.get("mobile")
+        desktop = analysis_result.get("desktop")
         
         for src in (mobile, desktop):
             if src and "scores" in src and key in src["scores"]:
@@ -1310,5 +1384,61 @@ class UnifiedAnalyzer:
         # Include all five categories - Trust and CRO are treated as real zeros, not excluded
         # This ensures we always have 5 values to average
         total_score = sum(values)
-        return round(total_score / 5.0, 2)
+        overall_percentage = round(total_score / 5.0, 1)  # Round to 1 decimal place for cleaner display
+        return overall_percentage
+    
+    def get_mobile_usability_score(self, analysis_result: Dict[str, Any]) -> Optional[int]:
+        """Get the mobile usability score from PageSpeed data."""
+        mobile = analysis_result.get("mobile", {})
+        if mobile and "mobileUsability" in mobile:
+            mobile_usability = mobile["mobileUsability"]
+            if mobile_usability and isinstance(mobile_usability, dict):
+                score = mobile_usability.get("score")
+                if score is not None:
+                    return int(score)
+        return None
+    
+    def get_top_issues(self, analysis_result: Dict[str, Any], max_issues: int = 3) -> List[str]:
+        """Get top issues from PageSpeed opportunities and mobile usability."""
+        issues = []
+        
+        # Get opportunities from mobile data
+        mobile = analysis_result.get("mobile", {})
+        if mobile and "opportunities" in mobile:
+            for opp in mobile["opportunities"][:max_issues]:
+                title = opp.get("title", "")
+                if title:
+                    # Truncate long titles to prevent UI overflow
+                    if len(title) > 25:
+                        title = title[:22] + "..."
+                    issues.append(title)
+        
+        # If we don't have enough issues, add mobile usability issues
+        if len(issues) < max_issues and mobile and "mobileUsability" in mobile:
+            mobile_usability = mobile["mobileUsability"]
+            if mobile_usability and isinstance(mobile_usability, dict):
+                mobile_issues = mobile_usability.get("issues", [])
+                for issue in mobile_issues:
+                    if len(issues) >= max_issues:
+                        break
+                    # Truncate long issues
+                    if len(issue) > 25:
+                        issue = issue[:22] + "..."
+                    issues.append(issue)
+        
+        # If still not enough, add desktop opportunities
+        if len(issues) < max_issues:
+            desktop = analysis_result.get("desktop", {})
+            if desktop and "opportunities" in desktop:
+                for opp in desktop["opportunities"]:
+                    if len(issues) >= max_issues:
+                        break
+                    title = opp.get("title", "")
+                    if title and title not in issues:
+                        # Truncate long titles
+                        if len(title) > 25:
+                            title = title[:22] + "..."
+                        issues.append(title)
+        
+        return issues[:max_issues]
     
