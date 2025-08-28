@@ -8,8 +8,8 @@ import asyncio
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from src.services.leadgen_tool_executor import LeadGenToolExecutor
-from src.services.leadgen_context_manager import LeadGenContextManager, WorkflowStep, ConfirmationType
+from .leadgen_tool_executor import LeadGenToolExecutor
+from .leadgen_context_manager import LeadGenContextManager, WorkflowStep, ConfirmationType
 
 logger = logging.getLogger(__name__)
 

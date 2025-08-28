@@ -4,9 +4,9 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 
-from ..core.base_service import BaseService
-from ..models.website_scoring import WebsiteScore
-from ..schemas.website_scoring import ScoreValidationResult, ValidationMetrics, IssuePriority, IssuePriorityDetails, IssueCategory, FinalScore
+from ...core.base_service import BaseService
+from ...models.website_scoring import WebsiteScore
+from ...schemas.website_scoring import ScoreValidationResult, ValidationMetrics, IssuePriority, IssuePriorityDetails, IssueCategory, FinalScore
 
 
 class ConfidenceLevel(str, Enum):

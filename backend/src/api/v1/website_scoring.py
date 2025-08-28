@@ -19,7 +19,7 @@ from src.schemas.website_scoring import (
     PageSpeedAuditResponse,
     WebsiteScore
 )
-from src.services.unified import UnifiedAnalyzer
+from src.services.core.unified import UnifiedAnalyzer
 
 
 router = APIRouter(prefix="/website-scoring", tags=["website-scoring"])

@@ -13,8 +13,8 @@ import uuid
 from fuzzywuzzy import fuzz
 from geopy.distance import geodesic
 
-from ..core.base_service import BaseService
-from ..schemas.business_matching import (
+from ...core.base_service import BaseService
+from ...schemas.business_matching import (
     BusinessSourceData,
     BusinessLocation,
     BusinessMatchScore,

@@ -8,9 +8,9 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import math
 
-from ..core.base_service import BaseService
-from ..schemas.business_matching import BusinessSourceData, BusinessLocation, BusinessContactInfo, ConfidenceLevel
-from ..schemas.business_merging import DataCompletenessScore, MergedBusinessData, MergeConflict
+from ...core.base_service import BaseService
+from ...schemas.business_matching import BusinessSourceData, BusinessLocation, BusinessContactInfo, ConfidenceLevel
+from ...schemas.business_merging import DataCompletenessScore, MergedBusinessData, MergeConflict
 
 
 class ConfidenceScoringService(BaseService):

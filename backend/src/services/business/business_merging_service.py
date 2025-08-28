@@ -8,17 +8,17 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import uuid
 
-from ..core.base_service import BaseService
-from ..schemas.business_matching import BusinessSourceData, BusinessLocation, BusinessContactInfo, ConfidenceLevel
-from ..schemas.business_merging import (
+from ...core.base_service import BaseService
+from ...schemas.business_matching import BusinessSourceData, BusinessLocation, BusinessContactInfo, ConfidenceLevel
+from ...schemas.business_merging import (
     DataCompletenessScore,
     MergedBusinessData,
     MergeConflict,
     BusinessMergeRequest,
     BusinessMergeResponse
 )
-from ..services.confidence_scoring_service import ConfidenceScoringService
-from ..services.review_management_service import ReviewManagementService
+from ..scoring.confidence_scoring_service import ConfidenceScoringService
+from .review_management_service import ReviewManagementService
 
 
 class BusinessMergingService(BaseService):

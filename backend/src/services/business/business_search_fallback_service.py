@@ -5,12 +5,12 @@ Automatically falls back from SerpAPI to Yelp Fusion when the primary API fails.
 
 import logging
 from typing import Dict, Any, Optional, Union
-from src.core.base_service import BaseService
-from src.schemas.business_search import BusinessSearchRequest, BusinessSearchResponse, BusinessSearchError, BusinessData
-from src.schemas.yelp_fusion import YelpBusinessSearchRequest, YelpBusinessSearchResponse, YelpBusinessSearchError
-from src.services.serpapi_service import SerpAPIService
-from src.services.yelp_fusion_service import YelpFusionService
-from src.services.confidence_scoring_service import ConfidenceScoringService
+from ...core.base_service import BaseService
+from ...schemas.business_search import BusinessSearchRequest, BusinessSearchResponse, BusinessSearchError, BusinessData
+from ...schemas.yelp_fusion import YelpBusinessSearchRequest, YelpBusinessSearchResponse, YelpBusinessSearchError
+from ..external_apis.serpapi_service import SerpAPIService
+from ..external_apis.yelp_fusion_service import YelpFusionService
+from ..scoring.confidence_scoring_service import ConfidenceScoringService
 
 
 class BusinessSearchFallbackService(BaseService):

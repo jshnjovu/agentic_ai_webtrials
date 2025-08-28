@@ -6,8 +6,8 @@ Used to determine country codes for SerpAPI searches.
 import httpx
 import logging
 from typing import Optional, Dict, Any
-from src.core.base_service import BaseService
-from src.core.config import get_api_config
+from ...core.base_service import BaseService
+from ...core.config import get_api_config
 
 
 class GeoapifyService(BaseService):

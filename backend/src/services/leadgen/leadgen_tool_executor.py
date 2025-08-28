@@ -9,15 +9,15 @@ import httpx
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from src.services.google_places_service import GooglePlacesService
-from src.services.yelp_fusion_service import YelpFusionService
-from src.services.unified import UnifiedAnalyzer
-from src.services.score_validation_service import ScoreValidationService
-from src.services.fallback_scoring_service import FallbackScoringService
-from src.services.website_template_service import WebsiteTemplateService
-from src.services.demo_hosting_service import DemoHostingService
-from src.services.ai_content_generation_service import AIContentGenerationService
-from src.schemas.business_search import BusinessSearchRequest
+from ..external_apis.google_places_service import GooglePlacesService
+from ..external_apis.yelp_fusion_service import YelpFusionService
+from ..core.unified import UnifiedAnalyzer
+from ..scoring.score_validation_service import ScoreValidationService
+from ..scoring.fallback_scoring_service import FallbackScoringService
+from ..templates.website_template_service import WebsiteTemplateService
+from ..templates.demo_hosting_service import DemoHostingService
+from ..ai.ai_content_generation_service import AIContentGenerationService
+from ...schemas.business_search import BusinessSearchRequest
 # WebsiteScoringRequest not available, using ComprehensiveSpeedRequest instead
 
 logger = logging.getLogger(__name__)

@@ -9,10 +9,10 @@ import logging
 from typing import Dict, Any, Optional, List
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from src.core.base_service import BaseService
-from src.core.config import get_api_config
-from src.services.rate_limiter import RateLimiter
-from src.services.unified import UnifiedAnalyzer
+from ...core.base_service import BaseService
+from ...core.config import get_api_config
+from ..core.rate_limiter import RateLimiter
+from ..core.unified import UnifiedAnalyzer
 
 logger = logging.getLogger(__name__)
 

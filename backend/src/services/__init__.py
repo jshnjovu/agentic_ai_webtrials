@@ -1,37 +1,67 @@
 """
 Business logic services
+
+This module provides access to all business logic services organized by category.
 """
 
-from .rate_limiter import RateLimiter
-from .rate_limit_monitor import RateLimitMonitor
-from .serpapi_service import SerpAPIService
-from .geoapify_service import GeoapifyService
-from .google_places_auth_service import GooglePlacesAuthService
-from .yelp_fusion_auth_service import YelpFusionAuthService
-from .google_places_service import GooglePlacesService
-from .yelp_fusion_service import YelpFusionService
-from .unified import UnifiedAnalyzer
-from .business_matching_service import BusinessMatchingService
-from .business_merging_service import BusinessMergingService
-from .duplicate_detection_service import DuplicateDetectionService
-from .confidence_scoring_service import ConfidenceScoringService
-from .review_management_service import ReviewManagementService
-from .business_search_fallback_service import BusinessSearchFallbackService
+# Core services
+from .core import RateLimiter, RateLimitMonitor, UnifiedAnalyzer
+
+# External API services
+from .external_apis import (
+    SerpAPIService, GeoapifyService, GooglePlacesAuthService,
+    YelpFusionAuthService, GooglePlacesService, YelpFusionService
+)
+
+# Business services
+from .business import (
+    BusinessMatchingService, BusinessMergingService, DuplicateDetectionService,
+    ReviewManagementService, BusinessSearchFallbackService
+)
+
+# Scoring services
+from .scoring import ConfidenceScoringService
+
+# AI services
+from .ai import AIContentGenerationService
+
+# Lead generation services
+from .leadgen import LeadGenAIAgent, LeadGenContextManager, LeadGenToolExecutor
+
+# Template services
+from .templates import WebsiteTemplateService, DemoHostingService
 
 __all__ = [
+    # Core services
     'RateLimiter',
-    'RateLimitMonitor',
+    'RateLimitMonitor', 
+    'UnifiedAnalyzer',
+    
+    # External API services
     'SerpAPIService',
     'GeoapifyService',
     'GooglePlacesAuthService',
     'YelpFusionAuthService', 
     'GooglePlacesService',
     'YelpFusionService',
-    'UnifiedAnalyzer',
+    
+    # Business services
     'BusinessMatchingService',
     'BusinessMergingService',
     'DuplicateDetectionService',
     'ConfidenceScoringService',
     'ReviewManagementService',
-    'BusinessSearchFallbackService'
+    'BusinessSearchFallbackService',
+    
+    # AI services
+    'AIContentGenerationService',
+    
+    # Lead generation services
+    'LeadGenAIAgent',
+    'LeadGenContextManager',
+    'LeadGenToolExecutor',
+    
+    # Template services
+    'WebsiteTemplateService',
+    'DemoHostingService'
 ]

@@ -13,8 +13,8 @@ try:
     from core.base_service import BaseService
     from core.config import get_api_config
 except ImportError:  # Running inside the src package
-    from ..core.base_service import BaseService
-    from ..core.config import get_api_config
+    from ...core.base_service import BaseService
+    from ...core.config import get_api_config
 
 
 class RateLimiter(BaseService):

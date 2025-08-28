@@ -7,10 +7,10 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import uuid
-from ..core.base_service import BaseService
-from ..schemas.business_matching import BusinessSourceData, ConfidenceLevel
-from ..schemas.business_merging import MergedBusinessData, MergeConflict
-from ..schemas.review_management import ReviewStatus, ReviewPriority, ReviewFlag, ReviewWorkflow
+from ...core.base_service import BaseService
+from ...schemas.business_matching import BusinessSourceData, ConfidenceLevel
+from ...schemas.business_merging import MergedBusinessData, MergeConflict
+from ...schemas.review_management import ReviewStatus, ReviewPriority, ReviewFlag, ReviewWorkflow
 
 
 class ReviewManagementService(BaseService):

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List, Dict, Any
 
 from src.services import RateLimitMonitor
-from src.services.rate_limit_monitor import AlertLevel
+from src.services.core.rate_limit_monitor import AlertLevel
 
 router = APIRouter(prefix="/rate-limit-monitoring", tags=["Rate Limit Monitoring"])
 

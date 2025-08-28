@@ -26,8 +26,8 @@ from google.auth.transport.requests import Request
 import google.auth.transport.requests
 import google.auth.transport.urllib3
 
-from ..core.config import get_api_config
-from ..services.rate_limiter import RateLimiter
+from ...core.config import get_api_config
+from .rate_limiter import RateLimiter
 
 logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 log = logging.getLogger("unified")

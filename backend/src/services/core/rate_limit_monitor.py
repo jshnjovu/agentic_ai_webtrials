@@ -9,9 +9,9 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
 
-from src.core.base_service import BaseService
-from src.services import RateLimiter
-from src.core.config import get_api_config
+from ...core.base_service import BaseService
+from .rate_limiter import RateLimiter
+from ...core.config import get_api_config
 
 
 class AlertLevel(Enum):

@@ -7,9 +7,10 @@ import httpx
 import re
 from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import quote_plus
-from src.core import BaseService, get_api_config
-from src.services.rate_limiter import RateLimiter
-from src.services.geoapify_service import GeoapifyService
+from ...core.base_service import BaseService
+from ...core.config import get_api_config
+from ..core.rate_limiter import RateLimiter
+from .geoapify_service import GeoapifyService
 from src.schemas import (
     BusinessSearchRequest, BusinessData, BusinessSearchResponse, 
     BusinessSearchError, LocationType

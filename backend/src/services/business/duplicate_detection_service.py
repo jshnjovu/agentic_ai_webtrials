@@ -10,9 +10,9 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import uuid
 
-from ..core.base_service import BaseService
-from ..schemas.business_matching import BusinessSourceData, BusinessLocation, BusinessContactInfo, ConfidenceLevel
-from ..schemas.duplicate_detection import (
+from ...core.base_service import BaseService
+from ...schemas.business_matching import BusinessSourceData, BusinessLocation, BusinessContactInfo, ConfidenceLevel
+from ...schemas.duplicate_detection import (
     BusinessFingerprint,
     DuplicateType,
     DuplicateGroup,

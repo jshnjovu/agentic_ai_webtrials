@@ -9,11 +9,11 @@ from typing import Dict, Any, Optional, Tuple, List
 from enum import Enum
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from src.core.base_service import BaseService
-from src.core.config import get_api_config
-from src.services.rate_limiter import RateLimiter
-from src.services.comprehensive_speed_service import ComprehensiveSpeedService
-from src.schemas.website_scoring import (
+from ...core.base_service import BaseService
+from ...core.config import get_api_config
+from ..core.rate_limiter import RateLimiter
+from .comprehensive_speed_service import ComprehensiveSpeedService
+from ...schemas.website_scoring import (
     FallbackScore, FallbackReason, FallbackReasonDetails, FallbackMetrics, FallbackHistory, FallbackQuality, FallbackQualityDetails,
     ConfidenceLevel, FallbackScoringRequest, FallbackScoringResponse, FallbackScoringError
 )

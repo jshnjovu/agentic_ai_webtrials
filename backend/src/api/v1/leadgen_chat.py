@@ -11,9 +11,9 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from src.services.leadgen_ai_agent import LeadGenAIAgent
-from src.services.leadgen_tool_executor import LeadGenToolExecutor
-from src.services.leadgen_context_manager import LeadGenContextManager, WorkflowStep, ConfirmationType
+from src.services.leadgen.leadgen_ai_agent import LeadGenAIAgent
+from src.services.leadgen.leadgen_tool_executor import LeadGenToolExecutor
+from src.services.leadgen.leadgen_context_manager import LeadGenContextManager, WorkflowStep, ConfirmationType
 from src.core.config import settings
 
 logger = logging.getLogger(__name__)
